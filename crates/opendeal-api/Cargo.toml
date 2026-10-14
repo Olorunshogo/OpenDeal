@@ -1,0 +1,41 @@
+[package]
+name = "opendeal-api"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "OpenDeal coordination API for auth, deals, evidence, and disputes. Never holds private keys."
+default-run = "opendeal-api"
+
+[[bin]]
+name = "opendeal-api"
+path = "src/main.rs"
+
+[dependencies]
+opendeal-core = { workspace = true }
+opendeal-bitcoin = { workspace = true }
+axum = "0.8"
+tokio = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+sqlx = { version = "0.8", features = ["runtime-tokio", "tls-rustls", "postgres", "uuid", "chrono", "migrate", "macros", "json"] }
+tower = { version = "0.5", features = ["limit"] }
+tower-http = { version = "0.6", features = ["trace", "timeout", "limit", "cors", "request-id", "set-header", "util"] }
+tracing = { workspace = true }
+tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
+uuid = { workspace = true }
+chrono = { workspace = true }
+async-trait = { workspace = true }
+nostr = { version = "0.45", features = ["std", "os-rng"] }
+jsonwebtoken = "9"
+hex = { workspace = true }
+sha2 = { workspace = true }
+hmac = "0.12"
+rand = "0.8"
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
+utoipa = { version = "5", features = ["chrono", "uuid"] }
+utoipa-swagger-ui = { version = "9", features = ["axum"] }
+
+[dev-dependencies]
+tower = { version = "0.5", features = ["util"] }
+http-body-util = "0.1"
