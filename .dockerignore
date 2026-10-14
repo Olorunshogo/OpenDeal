@@ -1,0 +1,22 @@
+# Rust
+target
+
+# Node
+**/node_modules
+frontend/.next
+frontend/out
+
+# Env and secrets
+.env
+.env.local
+*.env.*.local
+!*.env.example
+
+# VCS and editor
+.git
+.gitignore
+.vscode
+
+# Docs, not needed inside a built image
+docs
+*.md
