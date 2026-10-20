@@ -32,18 +32,22 @@ Status: living document for the MVP and early pilots. Not a security audit.
 | Webhook spoofing | HMAC signature header `X-OpenDeal-Signature` |
 | Mainnet accidental use | `OPENDEAL_ALLOW_MAINNET` gate. MVP labeled regtest experimental. |
 | Mediator collusion with one party | Documented residual risk. 2-of-3 still requires a second signature. |
-| Frozen funds / non-cooperation | Timelock recovery deferred. Document manual recovery as future work. |
+| Frozen funds / non-cooperation | Pilot: manual 2-of-3 recovery ([`recovery.md`](./recovery.md)). Timelock script deferred until reviewed. |
 | Simulated adapter in production | Startup refused when `APP_ENV=production` and model is `simulated` |
 
 ## Explicit non-goals (MVP)
 
 - Trustless determination of physical-world delivery quality
 - AI dispute adjudication
-- Automated timelock recovery paths
+- Automated timelock recovery in the live escrow script (see [`recovery.md`](./recovery.md) for the future plan)
 - Handling real user funds without an external review
 
 ## Residual risks
 
 - Mediator plus one party can always settle against the other
-- If all three refuse to sign, funds remain locked until a recovery path exists
+- If all three refuse to sign, funds remain locked (accepted pilot risk; mitigate with known counterparties and caps)
 - Lightning/fiat rails reintroduce custody. The product must never imply multisig guarantees for those models.
+
+## External review
+
+Prep package and reviewer checklist for `opendeal-bitcoin`: [`security-review.md`](./security-review.md). An external review is still required before unconstrained mainnet funds.

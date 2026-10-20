@@ -4,14 +4,17 @@ use std::str::FromStr;
 use bitcoin::absolute::LockTime;
 use bitcoin::bip32::KeySource;
 use bitcoin::consensus::encode::serialize_hex;
+use bitcoin::hashes::Hash;
 use bitcoin::psbt::{Input as PsbtInput, Psbt, PsbtSighashType};
-use bitcoin::secp256k1::PublicKey;
+use bitcoin::secp256k1::{Message, PublicKey, Secp256k1, SecretKey};
+use bitcoin::sighash::{EcdsaSighashType, SighashCache};
 use bitcoin::transaction::{OutPoint, Transaction, TxIn, TxOut, Version};
-use bitcoin::{Address, Amount, ScriptBuf, Sequence, Txid, Witness};
+use bitcoin::{Address, Amount, ScriptBuf, Sequence, Txid, WScriptHash, Witness};
 use serde::{Deserialize, Serialize};
 
 use crate::error::BitcoinError;
-use crate::escrow::EscrowDescriptor;
+use crate::escrow::{EscrowDescriptor, parse_network};
+use crate::policy::FeeDustPolicy;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -46,17 +49,20 @@ pub fn build_settlement_psbt(
     fee_sats: u64,
     purpose: SettlementPurpose,
 ) -> Result<SettlementPsbt, BitcoinError> {
-    if fee_sats >= funding_amount_sats {
-        return Err(BitcoinError::Psbt(
-            "fee must be less than funding amount".into(),
-        ));
-    }
-    let output_amount = funding_amount_sats - fee_sats;
+    let output_amount =
+        FeeDustPolicy::default().validate_settlement_amounts(funding_amount_sats, fee_sats)?;
 
+    let network = parse_network(&escrow.network)?;
     let txid = Txid::from_str(funding_txid).map_err(|e| BitcoinError::Psbt(e.to_string()))?;
     let dest = Address::from_str(destination_address)
         .map_err(|e| BitcoinError::Psbt(e.to_string()))?
-        .assume_checked();
+        .require_network(network)
+        .map_err(|e| {
+            BitcoinError::NetworkMismatch {
+                expected: escrow.network.clone(),
+                got: e.to_string(),
+            }
+        })?;
 
     let witness_script = ScriptBuf::from_bytes(
         hex::decode(&escrow.witness_script_hex).map_err(|e| BitcoinError::Script(e.to_string()))?,
@@ -64,6 +70,11 @@ pub fn build_settlement_psbt(
     let script_pubkey = ScriptBuf::from_bytes(
         hex::decode(&escrow.script_pubkey_hex).map_err(|e| BitcoinError::Script(e.to_string()))?,
     );
+    if script_pubkey != ScriptBuf::new_p2wsh(&WScriptHash::hash(witness_script.as_bytes())) {
+        return Err(BitcoinError::Script(
+            "escrow script_pubkey does not match witness_script".into(),
+        ));
+    }
 
     let tx = Transaction {
         version: Version::TWO,
@@ -139,16 +150,195 @@ pub fn psbt_from_base64(data: &str) -> Result<Psbt, BitcoinError> {
 pub fn combine_psbts(base: &str, update: &str) -> Result<String, BitcoinError> {
     let mut a = psbt_from_base64(base)?;
     let b = psbt_from_base64(update)?;
+    if a.unsigned_tx.compute_txid() != b.unsigned_tx.compute_txid() {
+        return Err(BitcoinError::Psbt(
+            "cannot combine PSBTs with different unsigned transactions".into(),
+        ));
+    }
+    if a.inputs.len() != 1 || b.inputs.len() != 1 {
+        return Err(BitcoinError::Psbt(
+            "expected single-input settlement PSBTs".into(),
+        ));
+    }
     a.combine(b)
         .map_err(|e| BitcoinError::Psbt(e.to_string()))?;
     return psbt_to_base64(&a);
 }
 
+pub fn sign_psbt_with_secret(psbt_base64: &str, secret: &SecretKey) -> Result<String, BitcoinError> {
+    let mut psbt = psbt_from_base64(psbt_base64)?;
+    if psbt.inputs.len() != 1 {
+        return Err(BitcoinError::Psbt("expected single-input settlement PSBT".into()));
+    }
+    let secp = Secp256k1::new();
+    let pubkey = PublicKey::from_secret_key(&secp, secret);
+    let bitcoin_pk = bitcoin::PublicKey::new(pubkey);
+
+    let witness_utxo = psbt.inputs[0]
+        .witness_utxo
+        .clone()
+        .ok_or_else(|| BitcoinError::Psbt("missing witness_utxo".into()))?;
+    let witness_script = psbt.inputs[0]
+        .witness_script
+        .clone()
+        .ok_or_else(|| BitcoinError::Psbt("missing witness_script".into()))?;
+    let sighash_type = EcdsaSighashType::All;
+
+    let mut cache = SighashCache::new(&psbt.unsigned_tx);
+    let sighash = cache
+        .p2wsh_signature_hash(0, &witness_script, witness_utxo.value, sighash_type)
+        .map_err(|e| BitcoinError::Psbt(e.to_string()))?;
+    let msg = Message::from_digest_slice(sighash.as_ref())
+        .map_err(|e| BitcoinError::Psbt(e.to_string()))?;
+    let sig = secp.sign_ecdsa(&msg, secret);
+    let mut der = sig.serialize_der().to_vec();
+    der.push(sighash_type as u8);
+    let ecdsa_sig = bitcoin::ecdsa::Signature::from_slice(&der)
+        .map_err(|e| BitcoinError::Psbt(e.to_string()))?;
+    psbt.inputs[0].partial_sigs.insert(bitcoin_pk, ecdsa_sig);
+    return psbt_to_base64(&psbt);
+}
+
+pub fn finalize_2of3_psbt(psbt_base64: &str) -> Result<String, BitcoinError> {
+    let mut psbt = psbt_from_base64(psbt_base64)?;
+    if psbt.inputs.len() != 1 {
+        return Err(BitcoinError::Psbt("expected single-input settlement PSBT".into()));
+    }
+    if psbt.inputs[0].final_script_witness.is_some() {
+        return psbt_to_base64(&psbt);
+    }
+    let witness_script = psbt.inputs[0]
+        .witness_script
+        .clone()
+        .ok_or_else(|| BitcoinError::Psbt("missing witness_script".into()))?;
+    let script_pubkeys = multisig_pubkeys_from_script(&witness_script)?;
+    let partial = &psbt.inputs[0].partial_sigs;
+    let mut ordered_sigs = Vec::new();
+    for pk in &script_pubkeys {
+        if let Some(sig) = partial.get(pk) {
+            ordered_sigs.push(sig.clone());
+        }
+    }
+    if ordered_sigs.len() < 2 {
+        return Err(BitcoinError::Psbt(format!(
+            "need 2-of-3 signatures to finalize, have {}",
+            ordered_sigs.len()
+        )));
+    }
+    ordered_sigs.truncate(2);
+    for sig in &ordered_sigs {
+        let bytes = sig.to_vec();
+        let sighash = bytes.last().copied().unwrap_or(0xff);
+        if sighash != EcdsaSighashType::All as u8 {
+            return Err(BitcoinError::Psbt(
+                "settlement signatures must use SIGHASH_ALL".into(),
+            ));
+        }
+    }
+
+    let mut witness = Witness::new();
+    witness.push([]);
+    for sig in &ordered_sigs {
+        witness.push(sig.to_vec());
+    }
+    witness.push(witness_script.as_bytes());
+    psbt.inputs[0].final_script_witness = Some(witness);
+    psbt.inputs[0].partial_sigs.clear();
+    psbt.inputs[0].sighash_type = None;
+    return psbt_to_base64(&psbt);
+}
+
+fn multisig_pubkeys_from_script(script: &ScriptBuf) -> Result<Vec<bitcoin::PublicKey>, BitcoinError> {
+    let bytes = script.as_bytes();
+    if bytes.len() < 3 + 3 * 34 || bytes[0] != 0x52 {
+        return Err(BitcoinError::Script("not a 2-of-3 multisig script".into()));
+    }
+    let mut keys = Vec::new();
+    let mut i = 1usize;
+    for _ in 0..3 {
+        if i >= bytes.len() || bytes[i] != 33 {
+            return Err(BitcoinError::Script("expected 33-byte pubkey push".into()));
+        }
+        i += 1;
+        let pk = bitcoin::PublicKey::from_slice(&bytes[i..i + 33])
+            .map_err(|e| BitcoinError::InvalidKey(e.to_string()))?;
+        keys.push(pk);
+        i += 33;
+    }
+    return Ok(keys);
+}
+
 /// Extracts a finalized transaction hex when the PSBT has a complete witness.
 pub fn extract_tx_hex(psbt_base64: &str) -> Result<String, BitcoinError> {
-    let psbt = psbt_from_base64(psbt_base64)?;
+    let finalized = finalize_2of3_psbt(psbt_base64).unwrap_or_else(|_| psbt_base64.to_string());
+    let psbt = psbt_from_base64(&finalized)?;
     let tx = psbt
         .extract_tx()
         .map_err(|e| BitcoinError::Psbt(format!("extract failed (need 2-of-3 sigs): {}", e)))?;
     return Ok(serialize_hex(&tx));
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::escrow::EscrowKeys;
+    use bitcoin::{CompressedPublicKey, Network};
+
+    fn sample_escrow() -> (EscrowDescriptor, SecretKey, SecretKey, String) {
+        let secp = Secp256k1::new();
+        let sk1 = SecretKey::from_slice(&[1u8; 32]).unwrap();
+        let sk2 = SecretKey::from_slice(&[2u8; 32]).unwrap();
+        let sk3 = SecretKey::from_slice(&[3u8; 32]).unwrap();
+        let pk1 = bitcoin::PublicKey::new(PublicKey::from_secret_key(&secp, &sk1));
+        let keys = EscrowKeys {
+            seller_pubkey: pk1.to_string(),
+            buyer_pubkey: bitcoin::PublicKey::new(PublicKey::from_secret_key(&secp, &sk2))
+                .to_string(),
+            mediator_pubkey: bitcoin::PublicKey::new(PublicKey::from_secret_key(&secp, &sk3))
+                .to_string(),
+        };
+        let escrow = keys.build_escrow(Network::Regtest).unwrap();
+        let cpk = CompressedPublicKey::from_slice(&pk1.to_bytes()).unwrap();
+        let dest = Address::p2wpkh(&cpk, Network::Regtest).to_string();
+        return (escrow, sk1, sk2, dest);
+    }
+
+    #[test]
+    fn settlement_roundtrip_needs_two_sigs() {
+        let (escrow, sk1, sk2, dest) = sample_escrow();
+        let funding = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
+        let psbt = build_settlement_psbt(
+            &escrow,
+            funding,
+            0,
+            50_000,
+            &dest,
+            500,
+            SettlementPurpose::PayoutSeller,
+        )
+        .unwrap();
+        assert!(finalize_2of3_psbt(&psbt.psbt_base64).is_err());
+        let s1 = sign_psbt_with_secret(&psbt.psbt_base64, &sk1).unwrap();
+        let s2 = sign_psbt_with_secret(&psbt.psbt_base64, &sk2).unwrap();
+        let combined = combine_psbts(&s1, &s2).unwrap();
+        let finalized = finalize_2of3_psbt(&combined).unwrap();
+        assert!(extract_tx_hex(&finalized).is_ok());
+    }
+
+    #[test]
+    fn rejects_destination_on_wrong_network() {
+        let (escrow, _, _, _) = sample_escrow();
+        let funding = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
+        let mainnet_dest = "bc1qw508d6qejxtdg4y5r3zarvary0c5xw7kv8f3t4";
+        let err = build_settlement_psbt(
+            &escrow,
+            funding,
+            0,
+            50_000,
+            mainnet_dest,
+            500,
+            SettlementPurpose::PayoutSeller,
+        );
+        assert!(err.is_err());
+    }
 }

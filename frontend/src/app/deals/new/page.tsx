@@ -3,6 +3,7 @@
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { AppShell } from "@/components/AppShell";
+import { NetworkBanner } from "@/components/NetworkBanner";
 import { createDeal } from "@/lib/api";
 import { loadSession } from "@/lib/session";
 
@@ -45,6 +46,7 @@ export default function NewDealPage() {
   return (
     <AppShell>
       <div className="mx-auto max-w-xl animate-rise">
+        <NetworkBanner />
         <p className="text-xs uppercase tracking-[0.18em] text-[var(--accent-soft)]">Create</p>
         <h1 className="mt-2 font-[family-name:var(--font-display)] text-4xl">New deal</h1>
         <p className="mt-2 text-[var(--ink-muted)]">

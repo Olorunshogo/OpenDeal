@@ -19,6 +19,7 @@ pub fn router() -> Router<AppState> {
     return Router::new()
         .route("/", post(create_deal))
         .route("/{id}", get(get_deal))
+        .route("/{id}/agreement", get(get_agreement))
         .route("/{id}/sign", post(sign_agreement))
         .route("/{id}/transition", post(transition_deal))
         .route("/{id}/funding/prepare", post(prepare_funding))
@@ -46,6 +47,14 @@ async fn get_deal(
 ) -> Result<Json<ApiEnvelope<Deal>>, ApiError> {
     let deal = service::get_deal(&state.pool, &id).await?;
     return Ok(Json(ApiEnvelope::ok("deal", deal)));
+}
+
+async fn get_agreement(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+) -> Result<Json<ApiEnvelope<service::AgreementView>>, ApiError> {
+    let view = service::get_agreement_view(&state.pool, &id).await?;
+    return Ok(Json(ApiEnvelope::ok("agreement", view)));
 }
 
 async fn sign_agreement(

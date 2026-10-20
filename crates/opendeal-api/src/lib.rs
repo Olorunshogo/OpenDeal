@@ -3,10 +3,12 @@
 use std::sync::Arc;
 use std::time::Duration;
 
+use axum::Json;
 use axum::Router;
 use axum::extract::{DefaultBodyLimit, State};
 use axum::http::{HeaderName, HeaderValue, Method, StatusCode, header};
 use axum::routing::get;
+use serde::Serialize;
 use opendeal_bitcoin::{BitcoinMultisigAdapter, HttpBitcoinRpc, MockBitcoinRpc};
 use opendeal_core::SettlementModel;
 use sqlx::postgres::PgPoolOptions;
@@ -26,15 +28,18 @@ mod disputes;
 mod error;
 mod evidence;
 mod idempotency;
+mod mail;
 mod openapi;
 mod response;
 mod settlement;
 mod shutdown;
 mod state;
+mod storage;
 mod telemetry;
 mod webhooks;
 
 pub use telemetry::init as init_telemetry;
+pub use webhooks::spawn_retry_worker;
 
 pub use config::Config;
 pub use shutdown::shutdown_signal;
@@ -56,6 +61,26 @@ async fn report_readiness(State(state): State<AppState>) -> (StatusCode, &'stati
             (StatusCode::SERVICE_UNAVAILABLE, "database unavailable")
         }
     };
+}
+
+#[derive(Debug, Serialize)]
+struct PublicMeta {
+    network: String,
+    settlement_model: String,
+    pilot_max_amount_sats: Option<u64>,
+    required_confirmations: u32,
+}
+
+async fn public_meta(State(state): State<AppState>) -> Json<response::ApiEnvelope<PublicMeta>> {
+    return Json(response::ApiEnvelope::ok(
+        "meta",
+        PublicMeta {
+            network: state.config.bitcoin_network.clone(),
+            settlement_model: state.config.settlement_model.as_str().to_string(),
+            pilot_max_amount_sats: state.config.pilot_max_amount_sats,
+            required_confirmations: state.config.bitcoin_required_confirmations,
+        },
+    ));
 }
 
 #[derive(Debug)]
@@ -111,7 +136,13 @@ pub async fn build_state(config: Config) -> Result<AppState, StartupError> {
         SettlementModel::Simulated => Arc::new(settlement::SimulatedSettlementAdapter),
     };
 
-    return Ok(AppState::new(pool, config, settlement));
+    let storage = match storage::ObjectStorage::from_config(&config).await {
+        Ok(storage) => storage,
+        Err(err) => {
+            return Err(StartupError(format!("{:?}", err)));
+        }
+    };
+    return Ok(AppState::new(pool, config, settlement, storage));
 }
 
 pub fn build_app(state: AppState) -> Router {
@@ -119,6 +150,7 @@ pub fn build_app(state: AppState) -> Router {
     let cors = build_cors(&state.config.cors_allowed_origins);
 
     let api = Router::new()
+        .route("/meta", get(public_meta))
         .nest("/auth", auth::router())
         .nest("/deals", deals::router())
         .merge(evidence::router())

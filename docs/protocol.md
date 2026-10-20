@@ -44,6 +44,14 @@ Append-only, hash-chained records. Each event includes `prev_event_hash` (empty 
 
 A mediator decision updates protocol state and recommended payout. It does **not** move Bitcoin by itself.
 
+## Timeouts and recovery (multisig)
+
+Coordination clocks (`delivery_deadline`, acceptance window, status `expired`) do not spend escrow. For funded deals that cannot complete the happy path, the Phase 2 pilot uses **documented manual recovery**: two of three parties sign an off-server PSBT (payout or refund). See [`recovery.md`](./recovery.md).
+
+On-chain timelock recovery (CSV/CLTV) is a future script change. It is out of scope for the current P2WSH template until specified, tested, and reviewed.
+
+Mediator operating rules: [`mediator-policy.md`](./mediator-policy.md).
+
 ## Receipts
 
 `GET /api/v1/deals/{id}/receipt` returns a portable JSON receipt. Verify with `opendeal-core` or:

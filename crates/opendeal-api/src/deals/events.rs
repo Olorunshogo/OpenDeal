@@ -1,8 +1,13 @@
-use chrono::Utc;
+use chrono::{DateTime, Utc};
 use opendeal_core::{DealEvent, EventKind, EventPayload, Signature};
 use sqlx::PgPool;
 
 use crate::error::ApiError;
+
+fn now_micros() -> DateTime<Utc> {
+    let now = Utc::now();
+    return DateTime::from_timestamp_micros(now.timestamp_micros()).unwrap_or(now);
+}
 
 pub async fn append_event(
     pool: &PgPool,
@@ -44,7 +49,7 @@ pub async fn append_event(
         payload: payload.clone(),
         actor_pubkey: actor_pubkey.to_string(),
         prev_event_hash: prev_hash,
-        created_at: Utc::now(),
+        created_at: now_micros(),
         signature: signature.clone(),
     };
     let event_hash = event

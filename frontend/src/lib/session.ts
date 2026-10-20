@@ -2,6 +2,7 @@ export interface Session {
   token: string;
   pubkey: string;
   roleLabel: string;
+  signingSecret?: string;
 }
 
 const KEY = "opendeal.session";

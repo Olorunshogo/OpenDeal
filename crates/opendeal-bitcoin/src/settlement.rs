@@ -5,8 +5,10 @@ use serde::{Deserialize, Serialize};
 
 use crate::error::BitcoinError;
 use crate::escrow::{EscrowDescriptor, EscrowKeys, parse_network};
+use crate::policy::FeeDustPolicy;
 use crate::psbt::{
     SettlementPsbt, SettlementPurpose, build_settlement_psbt, combine_psbts, extract_tx_hex,
+    finalize_2of3_psbt,
 };
 use crate::rpc::BitcoinRpc;
 
@@ -55,6 +57,7 @@ impl BitcoinMultisigAdapter {
         network_name: &str,
         expected_amount_sats: u64,
     ) -> Result<(EscrowDescriptor, FundingInfo), BitcoinError> {
+        FeeDustPolicy::default().validate_deal_amount(expected_amount_sats)?;
         let network = parse_network(network_name)?;
         let escrow = keys.build_escrow(network)?;
         let info = FundingInfo {
@@ -133,7 +136,8 @@ impl BitcoinMultisigAdapter {
     }
 
     pub async fn finalize_and_broadcast(&self, psbt_base64: &str) -> Result<String, BitcoinError> {
-        let tx_hex = extract_tx_hex(psbt_base64)?;
+        let finalized = finalize_2of3_psbt(psbt_base64)?;
+        let tx_hex = extract_tx_hex(&finalized)?;
         return self.rpc.broadcast_hex(&tx_hex).await;
     }
 }

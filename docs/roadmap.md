@@ -13,7 +13,7 @@ Source of truth for layout: repo root [`README.md`](../README.md). Protocol deta
 | `crates/opendeal-api` | Axum API + Postgres (this is the backend you run) |
 | `frontend/` | Next.js buyer / seller / mediator UI |
 | `examples/regtest-demo` | Offline protocol demo + receipt verifier |
-| `docs/` | Protocol, threat model, demo notes, this roadmap |
+| `docs/` | Protocol, threat model, recovery, mediator policy, deploy, demo notes, this roadmap |
 
 ```bash
 docker compose up -d
@@ -38,11 +38,11 @@ cd frontend && pnpm dev
 | `protocol.md`, `threat-model.md`, `demo-recording.md`, README | Done |
 | Offline `regtest-demo` laptop-sale + receipt verify | Done |
 | CI (Rust + frontend), Compose (Postgres + bitcoind) | Done |
-| Live end-to-end regtest script (fund from wallets, off-server 2-of-3 PSBT sign) | Not done |
-| Frontend dual-sign agreement UX | Not done |
-| In-UI Nostr login (not only paste JWT) | Not done |
-| Backup screen recording for pitch | Not done |
-| SEO / favicon / Open Graph assets | Not done |
+| Live end-to-end regtest script (fund from wallets, off-server 2-of-3 PSBT sign) | Done (`scripts/live-regtest-e2e.sh` / `regtest-demo live-e2e`) |
+| Frontend dual-sign agreement UX | Done (deal page agreement panel + local ECDSA) |
+| In-UI Nostr login (not only paste JWT) | Done (NIP-07 + regtest identity; JWT paste in Advanced) |
+| Backup screen recording for pitch | Done (checklist + terminal proof in `demo-recording.md`; UI mp4 optional outside git) |
+| SEO / favicon / Open Graph assets | Done (`layout.tsx` metadata, icons, OG/twitter images) |
 
 **Exit criterion:** Reproducible regtest demo; invalid transitions rejected; receipt verifies without trusting the API.
 
@@ -54,16 +54,16 @@ cd frontend && pnpm dev
 
 | Item | Status |
 | --- | --- |
-| Nostr challenge/login → JWT on mutating routes | Done (API); UI login incomplete |
+| Nostr challenge/login → JWT on mutating routes | Done (API + UI) |
 | Idempotency-Key on funding/settlement mutations | Done (basic) |
-| Signed webhooks | Done (best-effort delivery) |
-| OpenAPI /docs | Done (thin; expand paths) |
+| Signed webhooks | Done (sync attempt + retry worker) |
+| OpenAPI /docs | Done (auth, deals, evidence, disputes, webhooks) |
 | Structured tracing bootstrap | Done |
-| Full OpenTelemetry export | Not done |
-| Object storage for evidence (e.g. R2) | Not done |
-| Real email notifications (e.g. Resend) | Not done |
-| Webhook retry job worker | Not done |
-| Secrets management, Sentry, deploy runbook | Not done |
+| Full OpenTelemetry export | Done (OTLP via `OTEL_EXPORTER_OTLP_ENDPOINT`) |
+| Object storage for evidence (e.g. R2) | Done (R2 or local `EVIDENCE_DIR`) |
+| Real email notifications (e.g. Resend) | Done (optional Resend; party emails on users) |
+| Webhook retry job worker | Done (in-process backoff + dead-letter) |
+| Secrets management, Sentry, deploy runbook | Done (`docs/deploy.md`, Sentry env-gated) |
 | Environment gates (`simulated` refused in prod; mainnet flag) | Done |
 
 ---
@@ -74,13 +74,13 @@ cd frontend && pnpm dev
 
 | Item | Status |
 | --- | --- |
-| Testnet pilot | Not done |
+| Testnet pilot | Done (ops-ready: [`testnet-pilot.md`](./testnet-pilot.md), `PILOT_MAX_AMOUNT_SATS`, `/api/v1/meta`, UI network banner) |
 | Constrained mainnet pilot | Not done |
-| Fee / dust policy hardening | Not done |
-| PSBT review UX (“what am I signing?”) | Not done |
-| Timeout / recovery design (timelock or documented manual recovery) | Not done |
-| Mediator policy docs + support runbooks | Not done |
-| External security review of `opendeal-bitcoin` | Not done |
+| Fee / dust policy hardening | Done (`FeeDustPolicy` in `opendeal-bitcoin`; enforced on create/prepare/propose) |
+| PSBT review UX (“what am I signing?”) | Done (deal page: decode summary, review checkbox, local/paste sign, decline, finalize) |
+| Timeout / recovery design (timelock or documented manual recovery) | Done (manual recovery default; timelock deferred; [`recovery.md`](./recovery.md)) |
+| Mediator policy docs + support runbooks | Done ([`mediator-policy.md`](./mediator-policy.md)) |
+| External security review of `opendeal-bitcoin` | Prep done ([`security-review.md`](./security-review.md)); external pass still required before mainnet |
 
 ---
 

@@ -34,6 +34,11 @@ impl EscrowKeys {
             parse_compressed_pubkey(&self.mediator_pubkey)?,
         ];
         keys.sort_by_key(|a| a.serialize());
+        if keys[0] == keys[1] || keys[1] == keys[2] || keys[0] == keys[2] {
+            return Err(BitcoinError::InvalidKey(
+                "buyer, seller, and mediator pubkeys must be three distinct keys".into(),
+            ));
+        }
 
         let witness_script = build_multisig_script(&keys)?;
         let wsh = WScriptHash::hash(witness_script.as_bytes());
@@ -76,13 +81,17 @@ pub fn network_name(network: Network) -> &'static str {
 
 fn parse_compressed_pubkey(hex_key: &str) -> Result<PublicKey, BitcoinError> {
     let raw = if hex_key.len() == 64 {
-        // x-only: assume even-y compressed form (02 || x)
         let mut v = vec![0x02];
         v.extend(hex::decode(hex_key).map_err(|e| BitcoinError::InvalidKey(e.to_string()))?);
         v
     } else {
         hex::decode(hex_key).map_err(|e| BitcoinError::InvalidKey(e.to_string()))?
     };
+    if raw.len() != 33 || (raw[0] != 0x02 && raw[0] != 0x03) {
+        return Err(BitcoinError::InvalidKey(
+            "expected compressed 33-byte pubkey (or 32-byte x-only mapped to 02||x)".into(),
+        ));
+    }
     return PublicKey::from_slice(&raw).map_err(|e| BitcoinError::InvalidKey(e.to_string()));
 }
 
@@ -129,5 +138,24 @@ mod tests {
         let b = keys.build_escrow(Network::Regtest).unwrap();
         assert_eq!(a.address, b.address);
         assert!(a.address.starts_with("bcrt"));
+    }
+
+    #[test]
+    fn rejects_duplicate_pubkeys() {
+        let secp = bitcoin::secp256k1::Secp256k1::new();
+        let sk1 = bitcoin::secp256k1::SecretKey::from_slice(&[1u8; 32]).unwrap();
+        let sk2 = bitcoin::secp256k1::SecretKey::from_slice(&[2u8; 32]).unwrap();
+        let pk1 = hex::encode(
+            bitcoin::secp256k1::PublicKey::from_secret_key(&secp, &sk1).serialize(),
+        );
+        let pk2 = hex::encode(
+            bitcoin::secp256k1::PublicKey::from_secret_key(&secp, &sk2).serialize(),
+        );
+        let keys = EscrowKeys {
+            buyer_pubkey: pk1.clone(),
+            seller_pubkey: pk2,
+            mediator_pubkey: pk1,
+        };
+        assert!(keys.build_escrow(Network::Regtest).is_err());
     }
 }

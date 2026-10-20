@@ -1,5 +1,3 @@
-// === API client (mirrors opendeal-api ApiEnvelope / Deal shapes)
-
 export interface ApiEnvelope<T> {
   message: string;
   data: T;
@@ -113,8 +111,80 @@ export async function apiFetch<T>(
   return envelope.data;
 }
 
+export interface AgreementView {
+  agreement: {
+    version: number;
+    title: string;
+    amount_sats: number;
+    currency: string;
+    seller_pubkey: string;
+    buyer_pubkey: string;
+    mediator_pubkey: string;
+    delivery_deadline: string;
+    acceptance_window_hours: number;
+    settlement_model: string;
+    network: string;
+    created_at: string;
+  };
+  canonical_hex: string;
+  signed_pubkeys: string[];
+}
+
+export interface AuthSession {
+  token: string;
+  pubkey: string;
+}
+
+export interface PublicMeta {
+  network: string;
+  settlement_model: string;
+  pilot_max_amount_sats: number | null;
+  required_confirmations: number;
+}
+
+export function getMeta(): Promise<PublicMeta> {
+  return apiFetch<PublicMeta>("/api/v1/meta");
+}
+
 export function getDeal(id: string): Promise<Deal> {
   return apiFetch<Deal>(`/api/v1/deals/${id}`);
+}
+
+export function getAgreement(id: string): Promise<AgreementView> {
+  return apiFetch<AgreementView>(`/api/v1/deals/${id}/agreement`);
+}
+
+export function signAgreement(
+  token: string,
+  id: string,
+  signature: { sig: string; pubkey: string },
+): Promise<Deal> {
+  return apiFetch<Deal>(`/api/v1/deals/${id}/sign`, {
+    method: "POST",
+    token,
+    body: JSON.stringify({ signature }),
+  });
+}
+
+export function requestNostrChallenge(pubkey: string): Promise<{ nonce: string; expires_at: string }> {
+  return apiFetch(`/api/v1/auth/nostr/challenge`, {
+    method: "POST",
+    body: JSON.stringify({ pubkey }),
+  });
+}
+
+export function nostrLogin(event: unknown): Promise<AuthSession> {
+  return apiFetch<AuthSession>(`/api/v1/auth/nostr/login`, {
+    method: "POST",
+    body: JSON.stringify({ event }),
+  });
+}
+
+export function devSession(pubkey: string): Promise<AuthSession> {
+  return apiFetch<AuthSession>(`/api/v1/auth/dev/session`, {
+    method: "POST",
+    body: JSON.stringify({ pubkey }),
+  });
 }
 
 export function createDeal(
@@ -177,5 +247,38 @@ export function resolveDispute(
     method: "POST",
     token,
     body: JSON.stringify({ decision, rationale }),
+  });
+}
+
+export type SettlementPurpose = "payout_seller" | "refund_buyer";
+
+export function proposeSettlement(
+  token: string,
+  id: string,
+  input: {
+    destination_address: string;
+    fee_sats: number;
+    purpose: SettlementPurpose;
+  },
+): Promise<Deal> {
+  return apiFetch<Deal>(`/api/v1/deals/${id}/settlement/propose`, {
+    method: "POST",
+    token,
+    body: JSON.stringify(input),
+  });
+}
+
+export function attachPsbtSignature(token: string, id: string, signed_psbt: string): Promise<Deal> {
+  return apiFetch<Deal>(`/api/v1/deals/${id}/settlement/sign`, {
+    method: "POST",
+    token,
+    body: JSON.stringify({ signed_psbt }),
+  });
+}
+
+export function finalizeSettlement(token: string, id: string): Promise<Deal> {
+  return apiFetch<Deal>(`/api/v1/deals/${id}/settlement/finalize`, {
+    method: "POST",
+    token,
   });
 }

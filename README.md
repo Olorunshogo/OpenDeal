@@ -20,7 +20,7 @@ A buyer and a seller who found each other online (WhatsApp, Jiji, social) need a
 
 It is not another marketplace. Settlement adapters keep Lightning/fiat pluggable later, with honest custody labels.
 
-See [`docs/protocol.md`](./docs/protocol.md), [`docs/threat-model.md`](./docs/threat-model.md), and [`docs/roadmap.md`](./docs/roadmap.md).
+See [`docs/protocol.md`](./docs/protocol.md), [`docs/threat-model.md`](./docs/threat-model.md), [`docs/recovery.md`](./docs/recovery.md), [`docs/mediator-policy.md`](./docs/mediator-policy.md), [`docs/testnet-pilot.md`](./docs/testnet-pilot.md), [`docs/security-review.md`](./docs/security-review.md), [`docs/roadmap.md`](./docs/roadmap.md), and [`docs/deploy.md`](./docs/deploy.md).
 
 ## Repository layout
 
@@ -37,31 +37,41 @@ Phased plan and status: [`docs/roadmap.md`](./docs/roadmap.md).
 
 ## Quick start
 
-Requires Rust (stable), Node 24+, pnpm, Docker.
+Requires Rust (stable), Node 24+, pnpm, Docker, Make.
 
 ```bash
-# 1. Postgres + bitcoind (regtest)
-docker compose up -d
+cp -n crates/opendeal-api/.env.example crates/opendeal-api/.env
+cp -n frontend/.env.local.example frontend/.env.local
 
-# 2. API
-cd crates/opendeal-api
-cp .env.example .env
-cargo run -p opendeal-api
-
-# 3. Frontend (new terminal)
-cd frontend
-cp .env.local.example .env.local
-pnpm install
-pnpm dev
+make up                 # Postgres (:5434) + bitcoind
+make install-frontend   # once
+make api                # terminal 1 (runs migrations when RUN_MIGRATIONS=true)
+make frontend           # terminal 2
 ```
 
+See `make help` for the full command list. Deploy notes: [`docs/deploy.md`](./docs/deploy.md).
+
 API: `http://localhost:8080` · OpenAPI UI: `/docs` · Frontend: `http://localhost:3000`
+
+Compose Postgres defaults to host port **5434** so it does not clash with a system Postgres on 5432. Override with `POSTGRES_HOST_PORT=5432` if needed, and match `DATABASE_*` in `.env`.
 
 ### Offline protocol smoke (no bitcoind)
 
 ```bash
 cargo run -p regtest-demo -- laptop-sale
 ```
+
+### Live regtest e2e (API + bitcoind wallets, off-server 2-of-3 PSBT)
+
+```bash
+docker compose up -d
+# if host :5432 is busy: POSTGRES_HOST_PORT=5434 docker compose up -d
+# match DATABASE_URL in crates/opendeal-api/.env to that port
+cargo run -p opendeal-api   # other terminal
+./scripts/live-regtest-e2e.sh
+```
+
+See [`docs/demo-recording.md`](./docs/demo-recording.md) for the pitch backup capture checklist.
 
 ## Settlement models
 

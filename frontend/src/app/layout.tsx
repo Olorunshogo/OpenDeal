@@ -24,11 +24,25 @@ export const metadata: Metadata = {
   },
   description:
     "Bitcoin-native commerce coordination with verifiable deals, 2-of-3 escrow, and no server keys.",
+  applicationName: "OpenDeal",
   authors: [{ name: "OpenDeal" }],
   creator: "OpenDeal",
+  keywords: [
+    "OpenDeal",
+    "Bitcoin",
+    "multisig",
+    "escrow",
+    "peer-to-peer commerce",
+    "Nostr",
+  ],
+  icons: {
+    icon: [{ url: "/favicon_io/favicon.ico" }, { url: "/icon.png", type: "image/png" }],
+    apple: [{ url: "/apple-icon.png" }],
+  },
   openGraph: {
     type: "website",
     locale: "en_US",
+    url: siteUrl,
     siteName: "OpenDeal",
     title: "OpenDeal",
     description:
@@ -39,6 +53,10 @@ export const metadata: Metadata = {
     title: "OpenDeal",
     description:
       "Bitcoin-native commerce coordination with verifiable deals, 2-of-3 escrow, and no server keys.",
+  },
+  robots: {
+    index: true,
+    follow: true,
   },
 };
 

@@ -19,4 +19,7 @@ pub enum BitcoinError {
 
     #[error("network mismatch: expected {expected}, got {got}")]
     NetworkMismatch { expected: String, got: String },
+
+    #[error("fee/dust policy: {0}")]
+    Policy(String),
 }

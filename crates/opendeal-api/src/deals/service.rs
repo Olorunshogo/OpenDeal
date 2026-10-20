@@ -1,12 +1,13 @@
 use chrono::Utc;
-use opendeal_bitcoin::{EscrowDescriptor, EscrowKeys, SettlementPurpose};
+use opendeal_bitcoin::{EscrowDescriptor, EscrowKeys, FeeDustPolicy, SettlementPurpose};
 use opendeal_core::{
-    Agreement, DealReceipt, DealStatus, EventKind, EventPayload, Signature,
+    Agreement, DealReceipt, DealStatus, EventKind, EventPayload, SettlementModel, Signature,
     verify_agreement_signature,
 };
 use sqlx::PgPool;
 
 use crate::error::ApiError;
+use crate::mail;
 use crate::state::AppState;
 use crate::webhooks;
 
@@ -18,10 +19,23 @@ pub async fn create_deal(
     seller_pubkey: &str,
     req: CreateDealRequest,
 ) -> Result<Deal, ApiError> {
-    if req.buyer_pubkey == seller_pubkey {
+    if norm_pubkey(&req.buyer_pubkey) == norm_pubkey(seller_pubkey) {
         return Err(ApiError::bad_request("buyer and seller must differ"));
     }
     let model = state.settlement.settlement_model();
+    if model == SettlementModel::BitcoinMultisig2of3 {
+        FeeDustPolicy::default()
+            .validate_deal_amount(req.amount_sats)
+            .map_err(|e| ApiError::bad_request(e.to_string()))?;
+    }
+    if let Some(max) = state.config.pilot_max_amount_sats {
+        if req.amount_sats > max {
+            return Err(ApiError::bad_request(format!(
+                "deal amount {} sats exceeds pilot cap {} sats (PILOT_MAX_AMOUNT_SATS)",
+                req.amount_sats, max
+            )));
+        }
+    }
     let agreement = Agreement {
         version: Agreement::CURRENT_VERSION,
         title: req.title.clone(),
@@ -81,6 +95,7 @@ pub async fn create_deal(
     .await?;
 
     webhooks::enqueue_deal_event(state, "deal.created", &deal).await?;
+    let _ = mail::notify_deal_parties(state, "deal.created", &deal).await;
     return Ok(deal);
 }
 
@@ -109,12 +124,45 @@ pub async fn load_agreement(pool: &PgPool, id: &str) -> Result<Agreement, ApiErr
     return serde_json::from_value(row.0).map_err(|e| ApiError::Internal(e.to_string()));
 }
 
+fn norm_pubkey(pubkey: &str) -> String {
+    let lower = pubkey.to_ascii_lowercase();
+    if lower.len() == 66 && (lower.starts_with("02") || lower.starts_with("03")) {
+        return lower[2..].to_string();
+    }
+    return lower;
+}
+
 fn assert_party(deal: &Deal, pubkey: &str) -> Result<(), ApiError> {
-    if pubkey == deal.seller_pubkey || pubkey == deal.buyer_pubkey || pubkey == deal.mediator_pubkey
+    let actor = norm_pubkey(pubkey);
+    if actor == norm_pubkey(&deal.seller_pubkey)
+        || actor == norm_pubkey(&deal.buyer_pubkey)
+        || actor == norm_pubkey(&deal.mediator_pubkey)
     {
         return Ok(());
     }
     return Err(ApiError::forbidden("not a party to this deal"));
+}
+
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct AgreementView {
+    pub agreement: Agreement,
+    pub canonical_hex: String,
+    pub signed_pubkeys: Vec<String>,
+}
+
+pub async fn get_agreement_view(pool: &PgPool, id: &str) -> Result<AgreementView, ApiError> {
+    let agreement = load_agreement(pool, id).await?;
+    let canonical_hex = hex::encode(agreement.canonical_bytes().map_err(ApiError::from)?);
+    let rows: Vec<(String,)> =
+        sqlx::query_as("SELECT pubkey FROM agreement_signatures WHERE agreement_id = $1")
+            .bind(id)
+            .fetch_all(pool)
+            .await?;
+    return Ok(AgreementView {
+        agreement,
+        canonical_hex,
+        signed_pubkeys: rows.into_iter().map(|r| r.0).collect(),
+    });
 }
 
 pub async fn sign_agreement(
@@ -155,9 +203,9 @@ pub async fn sign_agreement(
         id,
         EventKind::AgreementSigned,
         EventPayload::AgreementSigned {
-            role: if actor == deal.seller_pubkey {
+            role: if norm_pubkey(actor) == norm_pubkey(&deal.seller_pubkey) {
                 "seller".into()
-            } else if actor == deal.buyer_pubkey {
+            } else if norm_pubkey(actor) == norm_pubkey(&deal.buyer_pubkey) {
                 "buyer".into()
             } else {
                 "mediator".into()
@@ -165,7 +213,7 @@ pub async fn sign_agreement(
             pubkey: actor.to_string(),
         },
         actor,
-        Some(signature),
+        None,
     )
     .await?;
 
@@ -217,6 +265,8 @@ pub async fn transition_deal(
     )
     .await?;
     webhooks::enqueue_deal_event(state, "deal.transitioned", &updated).await?;
+    let event = format!("deal.{}", to.as_str());
+    let _ = mail::notify_deal_parties(state, &event, &updated).await;
     return Ok(updated);
 }
 
