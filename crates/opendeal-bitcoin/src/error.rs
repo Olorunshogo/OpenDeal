@@ -14,6 +14,9 @@ pub enum BitcoinError {
     #[error("rpc error: {0}")]
     Rpc(String),
 
+    #[error("Bitcoin Core RPC error code {0}")]
+    RpcCode(i64),
+
     #[error("funding not found or insufficient: {0}")]
     Funding(String),
 
