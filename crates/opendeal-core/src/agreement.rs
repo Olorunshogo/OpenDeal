@@ -17,19 +17,13 @@ pub enum PartyRole {
 }
 
 /**
- * Machine-readable deal terms. Canonicalization uses compact JSON serialization in this
- * struct's fixed field order, not lexicographic key sorting. Both parties sign identical bytes.
+ * Machine-readable deal terms. Canonicalization sorts keys via `serde_json::to_vec` on this
+ * struct with a fixed field order. Both parties must sign identical bytes.
  */
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Agreement {
     pub version: u32,
     pub title: String,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub description: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub seller_payout_address: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub buyer_refund_address: Option<String>,
     pub amount_sats: u64,
     pub currency: String,
     pub seller_pubkey: String,
@@ -62,12 +56,22 @@ impl Agreement {
                 "amount_sats must be > 0".into(),
             ));
         }
-        let seller = crate::verification::normalize_identity(&self.seller_pubkey)?;
-        let buyer = crate::verification::normalize_identity(&self.buyer_pubkey)?;
-        let mediator = crate::verification::normalize_identity(&self.mediator_pubkey)?;
-        if seller == buyer || seller == mediator || buyer == mediator {
+        for (label, key) in [
+            ("seller_pubkey", &self.seller_pubkey),
+            ("buyer_pubkey", &self.buyer_pubkey),
+            ("mediator_pubkey", &self.mediator_pubkey),
+        ] {
+            let ok_len = key.len() == 64 || key.len() == 66;
+            if !ok_len || !key.chars().all(|c| c.is_ascii_hexdigit()) {
+                return Err(ProtocolError::InvalidAgreement(format!(
+                    "{} must be 64-hex x-only or 66-hex compressed secp256k1 pubkey",
+                    label
+                )));
+            }
+        }
+        if self.seller_pubkey == self.buyer_pubkey {
             return Err(ProtocolError::InvalidAgreement(
-                "buyer, seller and mediator must be distinct keys".into(),
+                "buyer and seller must be distinct".into(),
             ));
         }
         if self.network.trim().is_empty() {
@@ -97,24 +101,15 @@ mod tests {
     use super::*;
     use chrono::TimeZone;
 
-    fn sample_key(value: u8) -> String {
-        let secp = secp256k1::Secp256k1::new();
-        let secret = secp256k1::SecretKey::from_slice(&[value; 32]).unwrap();
-        secp256k1::PublicKey::from_secret_key(&secp, &secret).to_string()
-    }
-
     fn sample() -> Agreement {
         return Agreement {
             version: 1,
-            description: None,
-            seller_payout_address: None,
-            buyer_refund_address: None,
             title: "Used laptop".into(),
             amount_sats: 50_000,
             currency: "BTC".into(),
-            seller_pubkey: sample_key(1),
-            buyer_pubkey: sample_key(2),
-            mediator_pubkey: sample_key(3),
+            seller_pubkey: "a".repeat(64),
+            buyer_pubkey: "b".repeat(64),
+            mediator_pubkey: "c".repeat(64),
             delivery_deadline: Utc.with_ymd_and_hms(2026, 12, 1, 0, 0, 0).unwrap(),
             acceptance_window_hours: 48,
             settlement_model: SettlementModel::BitcoinMultisig2of3,

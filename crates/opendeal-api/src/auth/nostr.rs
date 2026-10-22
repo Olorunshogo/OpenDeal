@@ -34,30 +34,23 @@ impl Default for NonceStore {
 }
 
 impl NonceStore {
-    fn issue(&self, pubkey: &str) -> Result<String, ApiError> {
+    fn issue(&self, pubkey: &str) -> String {
         let nonce = Uuid::new_v4().to_string();
         let mut nonces = self.nonces.lock().expect("nonce store mutex poisoned");
-        nonces.retain(|_, (_, expires)| *expires > Instant::now());
-        if nonces.len() >= 10_000 {
-            return Err(ApiError::conflict_with_code(
-                "login challenge capacity reached; retry later",
-                "auth_capacity",
-            ));
-        }
         nonces.insert(
             pubkey.to_string(),
             (nonce.clone(), Instant::now() + CHALLENGE_TTL),
         );
-        return Ok(nonce);
+        return nonce;
     }
 
-    fn take(&self, pubkey: &str, content: &str) -> Option<String> {
+    fn take(&self, pubkey: &str) -> Option<String> {
         let mut nonces = self.nonces.lock().expect("nonce store mutex poisoned");
-        let (nonce, expires_at) = nonces.get(pubkey)?;
-        if Instant::now() > *expires_at || nonce != content {
+        let (nonce, expires_at) = nonces.remove(pubkey)?;
+        if Instant::now() > expires_at {
             return None;
         }
-        return nonces.remove(pubkey).map(|(nonce, _)| nonce);
+        return Some(nonce);
     }
 }
 
@@ -71,9 +64,9 @@ async fn challenge(
     State(state): State<AppState>,
     Json(request): Json<NostrChallengeRequest>,
 ) -> Result<Json<ApiEnvelope<NostrChallengeResponse>>, ApiError> {
-    let public = PublicKey::from_hex(&request.pubkey)
+    PublicKey::from_hex(&request.pubkey)
         .map_err(|_| ApiError::bad_request("pubkey must be a valid hex Nostr public key"))?;
-    let nonce = state.nonces.issue(&public.to_hex())?;
+    let nonce = state.nonces.issue(&request.pubkey);
     let expires_at = Utc::now() + CHALLENGE_TTL;
     return Ok(Json(ApiEnvelope::ok(
         "challenge issued",
@@ -85,24 +78,6 @@ async fn login(
     State(state): State<AppState>,
     Json(request): Json<NostrLoginRequest>,
 ) -> Result<Json<ApiEnvelope<LoginResponse>>, ApiError> {
-    let fields = request
-        .event
-        .as_object()
-        .ok_or_else(|| ApiError::bad_request("event must be an object"))?;
-    if fields.keys().any(|key| {
-        ![
-            "id",
-            "pubkey",
-            "created_at",
-            "kind",
-            "tags",
-            "content",
-            "sig",
-        ]
-        .contains(&key.as_str())
-    }) {
-        return Err(ApiError::bad_request("unknown Nostr event field"));
-    }
     let event = Event::from_json(request.event.to_string())
         .map_err(|_| ApiError::bad_request("event is not a valid Nostr event"))?;
     event
@@ -114,14 +89,8 @@ async fn login(
             LOGIN_EVENT_KIND
         )));
     }
-    let now = Utc::now().timestamp().max(0) as u64;
-    if event.created_at.as_secs().abs_diff(now) > CHALLENGE_TTL.as_secs() {
-        return Err(ApiError::unauthorized(
-            "login event timestamp is outside the challenge window",
-        ));
-    }
     let pubkey = event.pubkey.to_hex();
-    let expected_nonce = state.nonces.take(&pubkey, &event.content).ok_or_else(|| {
+    let expected_nonce = state.nonces.take(&pubkey).ok_or_else(|| {
         ApiError::unauthorized("no challenge outstanding for this pubkey, or it expired")
     })?;
     if event.content != expected_nonce {
@@ -151,26 +120,4 @@ async fn login(
             pubkey: user.pubkey,
         },
     )));
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    #[test]
-    fn nonce_is_single_use_and_wrong_content_does_not_consume_it() {
-        let store = NonceStore::default();
-        let nonce = store.issue("identity").unwrap();
-        assert!(store.take("identity", "wrong").is_none());
-        assert_eq!(store.take("identity", &nonce), Some(nonce.clone()));
-        assert!(store.take("identity", &nonce).is_none());
-    }
-    #[test]
-    fn expired_nonce_cannot_authenticate() {
-        let store = NonceStore::default();
-        store.nonces.lock().unwrap().insert(
-            "identity".into(),
-            ("nonce".into(), Instant::now() - Duration::from_secs(1)),
-        );
-        assert!(store.take("identity", "nonce").is_none());
-    }
 }

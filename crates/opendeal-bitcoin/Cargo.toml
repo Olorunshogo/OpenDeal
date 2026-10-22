@@ -10,7 +10,7 @@ description = "OpenDeal Bitcoin settlement: P2WSH 2-of-3, funding verify, PSBT c
 opendeal-core = { workspace = true }
 bitcoin = { workspace = true }
 serde = { workspace = true }
-serde_json = { workspace = true, features = ["arbitrary_precision"] }
+serde_json = { workspace = true }
 thiserror = { workspace = true }
 hex = { workspace = true }
 async-trait = { workspace = true }
@@ -21,5 +21,3 @@ base64 = "0.22"
 
 [dev-dependencies]
 tokio = { workspace = true }
-# Preserve Core BTC decimals exactly in the live test harness.
-serde_json = { workspace = true, features = ["arbitrary_precision"] }

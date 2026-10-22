@@ -8,7 +8,6 @@ use crate::error::ProtocolError;
 use crate::event::DealEvent;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
 pub struct Signature {
     /// Compact hex-encoded secp256k1 ECDSA signature.
     pub sig: String,
@@ -89,15 +88,6 @@ pub fn verify_event_chain(events: &[DealEvent]) -> Result<(), ProtocolError> {
 
     let mut expected_prev = String::new();
     for (idx, event) in events.iter().enumerate() {
-        let kind = serde_json::to_value(&event.kind)
-            .map_err(|e| ProtocolError::Canonicalization(e.to_string()))?;
-        let payload = serde_json::to_value(&event.payload)
-            .map_err(|e| ProtocolError::Canonicalization(e.to_string()))?;
-        if payload.get("type") != Some(&kind) {
-            return Err(ProtocolError::BrokenChain(
-                "event kind/payload mismatch".into(),
-            ));
-        }
         if event.sequence != idx as u64 {
             return Err(ProtocolError::BrokenChain(format!(
                 "expected sequence {}, got {}",
@@ -126,25 +116,6 @@ pub fn verify_event_chain(events: &[DealEvent]) -> Result<(), ProtocolError> {
         expected_prev = event.event_hash()?;
     }
     return Ok(());
-}
-
-/// Canonical identity shared by Nostr authentication and agreement participants.
-pub fn normalize_identity(raw: &str) -> Result<String, ProtocolError> {
-    if raw.len() != 64 && raw.len() != 66 {
-        return Err(ProtocolError::InvalidAgreement(
-            "expected x-only or compressed public key".into(),
-        ));
-    }
-    let full = if raw.len() == 64 {
-        format!("02{}", raw)
-    } else {
-        raw.to_owned()
-    };
-    let bytes = hex::decode(full)
-        .map_err(|_| ProtocolError::InvalidAgreement("invalid public key".into()))?;
-    let key = PublicKey::from_slice(&bytes)
-        .map_err(|_| ProtocolError::InvalidAgreement("invalid secp256k1 public key".into()))?;
-    Ok(key.x_only_public_key().0.to_string())
 }
 
 #[cfg(test)]
@@ -179,9 +150,6 @@ mod tests {
         let (_, _, mediator) = keypair();
         let agreement = Agreement {
             version: 1,
-            description: None,
-            seller_payout_address: None,
-            buyer_refund_address: None,
             title: "Laptop".into(),
             amount_sats: 10_000,
             currency: "BTC".into(),

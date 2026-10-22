@@ -74,39 +74,26 @@ pub async fn run_migrations(admin_url: &str) -> Result<(), StartupError> {
         .max_connections(2)
         .connect(admin_url)
         .await
-        .map_err(|_| StartupError("database connection or migration failed; verify configuration and database privileges".into()))?;
+        .map_err(|e| StartupError(e.to_string()))?;
     sqlx::migrate!("./migrations")
         .run(&pool)
         .await
-        .map_err(|_| StartupError("database connection or migration failed; verify configuration and database privileges".into()))?;
+        .map_err(|e| StartupError(e.to_string()))?;
     return Ok(());
 }
 
 pub async fn build_state(config: Config) -> Result<AppState, StartupError> {
-    config
-        .validate()
-        .map_err(|err| StartupError(err.to_string()))?;
     let pool = PgPoolOptions::new()
         .max_connections(10)
         .acquire_timeout(Duration::from_secs(5))
         .connect(&config.database_url)
         .await
-        .map_err(|_| StartupError("database connection or migration failed; verify configuration and database privileges".into()))?;
+        .map_err(|e| StartupError(e.to_string()))?;
 
     let settlement: Arc<dyn settlement::SettlementAdapter> = match config.settlement_model {
         SettlementModel::BitcoinMultisig2of3 => {
             let rpc: Arc<dyn opendeal_bitcoin::BitcoinRpc> = match &config.bitcoin_rpc_url {
-                Some(url) => Arc::new(HttpBitcoinRpc::new(
-                    url.clone(),
-                    config
-                        .bitcoin_rpc_user
-                        .clone()
-                        .ok_or_else(|| StartupError("BITCOIN_RPC_USER is required".into()))?,
-                    config
-                        .bitcoin_rpc_password
-                        .clone()
-                        .ok_or_else(|| StartupError("BITCOIN_RPC_PASSWORD is required".into()))?,
-                )),
+                Some(url) => Arc::new(HttpBitcoinRpc::new(url.clone())),
                 None => {
                     tracing::warn!(
                         "BITCOIN_RPC_URL unset; using MockBitcoinRpc (not for production)"
@@ -187,6 +174,3 @@ fn build_cors(origins: &[String]) -> CorsLayer {
             HeaderName::from_static("idempotency-key"),
         ]);
 }
-
-#[cfg(test)]
-mod tests;

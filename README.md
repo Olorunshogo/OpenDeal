@@ -45,11 +45,7 @@ docker compose up -d
 
 # 2. API
 cd crates/opendeal-api
-cp -n .env.example .env
-# Edit .env with local credentials, then export it (the API does not load dotenv).
-set -a
-source .env
-set +a
+cp .env.example .env
 cargo run -p opendeal-api
 
 # 3. Frontend (new terminal)
@@ -60,12 +56,6 @@ pnpm dev
 ```
 
 API: `http://localhost:8080` · OpenAPI UI: `/docs` · Frontend: `http://localhost:3000`
-
-For the existing Polar regtest setup (RPC port 18445, PostgreSQL port 5433),
-see [backend setup and connectivity checks](docs/regtest-backend.md).
-
-Backend integration: [initial audit](docs/backend-audit.md) ·
-[frontend API contract and integration test commands](docs/frontend-api-integration.md).
 
 ### Offline protocol smoke (no bitcoind)
 

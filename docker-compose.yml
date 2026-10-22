@@ -2,25 +2,42 @@ services:
   postgres:
     image: postgres:16-alpine
     restart: unless-stopped
-
     ports:
-      - "127.0.0.1:5433:5432"
-
+      - '${POSTGRES_HOST_PORT:-5432}:5432'
     environment:
-      POSTGRES_USER: opendeal
-      POSTGRES_PASSWORD: opendeal
-      POSTGRES_DB: opendeal
-
+      - POSTGRES_USER=opendeal
+      - POSTGRES_PASSWORD=opendeal
+      - POSTGRES_DB=opendeal
     volumes:
       - postgres-data:/var/lib/postgresql/data
-
     healthcheck:
-      test:
-        - CMD-SHELL
-        - pg_isready -U opendeal -d opendeal
+      test: ['CMD-SHELL', 'pg_isready -U opendeal -d opendeal']
       interval: 5s
       timeout: 3s
       retries: 10
 
+  bitcoind:
+    image: ruimarinho/bitcoin-core:26
+    restart: unless-stopped
+    ports:
+      - '${BITCOIN_RPC_PORT:-18443}:18443'
+    command:
+      - -regtest=1
+      - -server=1
+      - -rpcbind=0.0.0.0
+      - -rpcallowip=0.0.0.0/0
+      - -rpcuser=opendeal
+      - -rpcpassword=opendeal
+      - -fallbackfee=0.0002
+      - -txindex=1
+    volumes:
+      - bitcoind-data:/home/bitcoin/.bitcoin
+    healthcheck:
+      test: ['CMD', 'bitcoin-cli', '-regtest', '-rpcuser=opendeal', '-rpcpassword=opendeal', 'getblockchaininfo']
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
 volumes:
   postgres-data:
+  bitcoind-data:

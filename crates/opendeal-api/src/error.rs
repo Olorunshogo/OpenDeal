@@ -105,15 +105,6 @@ impl IntoResponse for ApiError {
 
 impl From<sqlx::Error> for ApiError {
     fn from(err: sqlx::Error) -> Self {
-        if err
-            .as_database_error()
-            .is_some_and(|error| error.code().as_deref() == Some("23505"))
-        {
-            return ApiError::conflict_with_code(
-                "resource already exists or funding outpoint is already assigned",
-                "duplicate_resource",
-            );
-        }
         return ApiError::Internal(err.to_string());
     }
 }

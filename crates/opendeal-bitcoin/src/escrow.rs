@@ -34,13 +34,6 @@ impl EscrowKeys {
             parse_compressed_pubkey(&self.mediator_pubkey)?,
         ];
         keys.sort_by_key(|a| a.serialize());
-        let identities: std::collections::HashSet<_> =
-            keys.iter().map(|key| key.x_only_public_key().0).collect();
-        if identities.len() != 3 {
-            return Err(BitcoinError::InvalidKey(
-                "escrow requires three distinct participant keys".into(),
-            ));
-        }
 
         let witness_script = build_multisig_script(&keys)?;
         let wsh = WScriptHash::hash(witness_script.as_bytes());
