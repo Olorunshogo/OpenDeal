@@ -187,3 +187,6 @@ fn build_cors(origins: &[String]) -> CorsLayer {
             HeaderName::from_static("idempotency-key"),
         ]);
 }
+
+#[cfg(test)]
+mod tests;
