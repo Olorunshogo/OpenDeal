@@ -21,6 +21,17 @@ pub struct Deal {
     pub funding_amount_sats: Option<i64>,
     pub settlement_txid: Option<String>,
     pub current_psbt: Option<String>,
+    #[serde(skip_serializing)]
+    pub agreement_json: serde_json::Value,
+    pub settlement_purpose: Option<String>,
+    pub settlement_proposal: Option<String>,
+    pub settlement_phase: String,
+    pub settlement_confirmations: i32,
+    pub settlement_block_hash: Option<String>,
+    #[serde(skip_serializing)]
+    pub settlement_raw_tx: Option<String>,
+    pub settlement_from_status: Option<String>,
+    pub broadcast_attempted_at: Option<DateTime<Utc>>,
     pub delivery_deadline: DateTime<Utc>,
     pub acceptance_window_hours: i32,
     pub created_at: DateTime<Utc>,
@@ -46,9 +57,22 @@ impl Deal {
     }
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct CreateDealRequest {
     pub title: String,
+    #[serde(default)]
+    pub description: Option<String>,
+    #[serde(default)]
+    pub seller_payout_address: Option<String>,
+    #[serde(default)]
+    pub buyer_refund_address: Option<String>,
+    #[serde(default)]
+    pub seller_pubkey: Option<String>,
+    #[serde(default)]
+    pub network: Option<String>,
+    #[serde(default)]
+    pub settlement_model: Option<String>,
     pub amount_sats: u64,
     pub buyer_pubkey: String,
     pub mediator_pubkey: String,
@@ -58,24 +82,28 @@ pub struct CreateDealRequest {
     pub currency: Option<String>,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct SignAgreementRequest {
     pub signature: opendeal_core::Signature,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct TransitionDealRequest {
     pub to: DealStatus,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct ProposeSettlementRequest {
     pub destination_address: String,
     pub fee_sats: u64,
     pub purpose: String,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct AttachPsbtSignatureRequest {
     pub signed_psbt: String,
 }
@@ -87,4 +115,10 @@ pub fn parse_settlement_model(s: &str) -> SettlementModel {
         "simulated" => SettlementModel::Simulated,
         _ => SettlementModel::BitcoinMultisig2of3,
     };
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ConfirmSettlementRequest {
+    pub block_hash: Option<String>,
 }
