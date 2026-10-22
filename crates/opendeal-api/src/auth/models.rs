@@ -24,6 +24,7 @@ pub struct User {
 }
 
 #[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct NostrChallengeRequest {
     pub pubkey: String,
 }
@@ -35,6 +36,7 @@ pub struct NostrChallengeResponse {
 }
 
 #[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct NostrLoginRequest {
     pub event: serde_json::Value,
 }
