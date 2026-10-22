@@ -1,14 +1,11 @@
-use hmac::{Hmac, Mac};
-use sha2::Sha256;
 use uuid::Uuid;
 
 use crate::deals::models::Deal;
 use crate::error::ApiError;
 use crate::state::AppState;
 
-type HmacSha256 = Hmac<Sha256>;
-
 #[derive(Debug, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct RegisterWebhookRequest {
     pub url: String,
 }
@@ -27,6 +24,18 @@ pub async fn register_endpoint(
     owner_pubkey: &str,
     url: String,
 ) -> Result<WebhookEndpoint, ApiError> {
+    let parsed =
+        reqwest::Url::parse(&url).map_err(|_| ApiError::bad_request("invalid webhook URL"))?;
+    if parsed.scheme() != "https"
+        || parsed.host_str().is_none()
+        || !parsed.username().is_empty()
+        || parsed.password().is_some()
+        || parsed.fragment().is_some()
+    {
+        return Err(ApiError::bad_request(
+            "webhook URL must be HTTPS without credentials or fragment",
+        ));
+    }
     let id = Uuid::new_v4();
     let secret = format!("whsec_{}", Uuid::new_v4());
     let row = sqlx::query_as::<_, WebhookEndpoint>(
@@ -45,92 +54,17 @@ pub async fn register_endpoint(
     return Ok(row);
 }
 
-pub async fn enqueue_deal_event(
-    state: &AppState,
+/// Transactional outbox only. Delivery requires a separate allowlisted worker;
+/// user-controlled webhook URLs are never fetched in the API request path.
+pub async fn enqueue_event_conn(
+    connection: &mut sqlx::PgConnection,
     event_type: &str,
     deal: &Deal,
 ) -> Result<(), ApiError> {
-    let endpoints: Vec<WebhookEndpoint> = sqlx::query_as(
-        r#"
-        SELECT id, owner_pubkey, url, secret, created_at FROM webhook_endpoints
-        WHERE owner_pubkey IN ($1, $2, $3)
-        "#,
-    )
-    .bind(&deal.seller_pubkey)
-    .bind(&deal.buyer_pubkey)
-    .bind(&deal.mediator_pubkey)
-    .fetch_all(&state.pool)
-    .await?;
-
-    let payload = serde_json::json!({
-        "type": event_type,
-        "deal": deal,
-    });
-
-    for endpoint in endpoints {
-        let delivery_id = Uuid::new_v4();
-        sqlx::query(
-            r#"
-            INSERT INTO webhook_deliveries (id, endpoint_id, event_type, payload, status, attempts)
-            VALUES ($1, $2, $3, $4, 'pending', 0)
-            "#,
-        )
-        .bind(delivery_id)
-        .bind(endpoint.id)
-        .bind(event_type)
-        .bind(&payload)
-        .execute(&state.pool)
-        .await?;
-
-        // Best-effort sync delivery for MVP; failures stay pending for retry jobs later.
-        let body = payload.to_string();
-        let signature = sign_payload(&endpoint.secret, &body);
-        let client = reqwest::Client::new();
-        match client
-            .post(&endpoint.url)
-            .header("Content-Type", "application/json")
-            .header("X-OpenDeal-Signature", signature)
-            .header("X-OpenDeal-Event", event_type)
-            .body(body)
-            .send()
-            .await
-        {
-            Ok(resp) if resp.status().is_success() => {
-                sqlx::query(
-                    "UPDATE webhook_deliveries SET status = 'delivered', attempts = 1, delivered_at = now() WHERE id = $1",
-                )
-                .bind(delivery_id)
-                .execute(&state.pool)
-                .await?;
-            }
-            Ok(resp) => {
-                let err = format!("http {}", resp.status());
-                sqlx::query(
-                    "UPDATE webhook_deliveries SET status = 'failed', attempts = 1, last_error = $2 WHERE id = $1",
-                )
-                .bind(delivery_id)
-                .bind(&err)
-                .execute(&state.pool)
-                .await?;
-            }
-            Err(err) => {
-                sqlx::query(
-                    "UPDATE webhook_deliveries SET status = 'failed', attempts = 1, last_error = $2 WHERE id = $1",
-                )
-                .bind(delivery_id)
-                .bind(err.to_string())
-                .execute(&state.pool)
-                .await?;
-            }
-        }
-    }
-    return Ok(());
-}
-
-pub fn sign_payload(secret: &str, body: &str) -> String {
-    let mut mac = HmacSha256::new_from_slice(secret.as_bytes()).expect("HMAC key length is valid");
-    mac.update(body.as_bytes());
-    return hex::encode(mac.finalize().into_bytes());
+    let payload = serde_json::json!({"type":event_type,"deal_id":deal.id,"status":deal.status});
+    sqlx::query("INSERT INTO webhook_deliveries (id,endpoint_id,event_type,payload,status,attempts) SELECT gen_random_uuid(),id,$1,$2,'pending',0 FROM webhook_endpoints WHERE owner_pubkey IN ($3,$4,$5)")
+        .bind(event_type).bind(payload).bind(&deal.seller_pubkey).bind(&deal.buyer_pubkey).bind(&deal.mediator_pubkey).execute(connection).await?;
+    Ok(())
 }
 
 use axum::extract::State;

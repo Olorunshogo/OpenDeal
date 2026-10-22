@@ -1,19 +1,23 @@
 use chrono::Utc;
 use opendeal_core::{DealEvent, EventKind, EventPayload, Signature};
-use sqlx::PgPool;
+use sqlx::{PgConnection, PgPool};
 
 use crate::error::ApiError;
 
-pub async fn append_event(
-    pool: &PgPool,
+pub async fn append_event_conn(
+    connection: &mut PgConnection,
     agreement_id: &str,
     kind: EventKind,
     payload: EventPayload,
     actor_pubkey: &str,
     signature: Option<Signature>,
 ) -> Result<DealEvent, ApiError> {
-    let mut tx = pool.begin().await?;
-
+    // Lock the parent even for the first event; locking only the previous event
+    // cannot serialize empty chains or writers waiting on a stale last row.
+    sqlx::query("SELECT id FROM deals WHERE id = $1 FOR UPDATE")
+        .bind(agreement_id)
+        .execute(&mut *connection)
+        .await?;
     let last = sqlx::query_as::<_, (i64, String)>(
         r#"
         SELECT sequence, event_hash FROM deal_events
@@ -24,7 +28,7 @@ pub async fn append_event(
         "#,
     )
     .bind(agreement_id)
-    .fetch_optional(&mut *tx)
+    .fetch_optional(&mut *connection)
     .await?;
 
     let (sequence, prev_hash) = match last {
@@ -44,7 +48,8 @@ pub async fn append_event(
         payload: payload.clone(),
         actor_pubkey: actor_pubkey.to_string(),
         prev_event_hash: prev_hash,
-        created_at: Utc::now(),
+        created_at: chrono::DateTime::from_timestamp_micros(Utc::now().timestamp_micros())
+            .expect("current timestamp"),
         signature: signature.clone(),
     };
     let event_hash = event
@@ -74,24 +79,31 @@ pub async fn append_event(
     .bind(&event_hash)
     .bind(&sig_json)
     .bind(event.created_at)
-    .execute(&mut *tx)
+    .execute(&mut *connection)
     .await?;
 
-    tx.commit().await?;
     return Ok(event);
 }
 
 pub async fn list_events(pool: &PgPool, agreement_id: &str) -> Result<Vec<DealEvent>, ApiError> {
+    let mut connection = pool.acquire().await?;
+    list_events_conn(&mut connection, agreement_id).await
+}
+
+pub async fn list_events_conn(
+    connection: &mut PgConnection,
+    agreement_id: &str,
+) -> Result<Vec<DealEvent>, ApiError> {
     let rows = sqlx::query_as::<_, EventRow>(
         r#"
-        SELECT agreement_id, sequence, kind, payload, actor_pubkey, prev_event_hash, signature_json, created_at
+        SELECT agreement_id, sequence, kind, payload, actor_pubkey, prev_event_hash, event_hash, signature_json, created_at
         FROM deal_events
         WHERE agreement_id = $1
         ORDER BY sequence ASC
         "#,
     )
     .bind(agreement_id)
-    .fetch_all(pool)
+    .fetch_all(connection)
     .await?;
 
     let mut events = Vec::with_capacity(rows.len());
@@ -106,7 +118,7 @@ pub async fn list_events(pool: &PgPool, agreement_id: &str) -> Result<Vec<DealEv
             .map(serde_json::from_value)
             .transpose()
             .map_err(|e| ApiError::Internal(e.to_string()))?;
-        events.push(DealEvent {
+        let event = DealEvent {
             agreement_id: row.agreement_id,
             sequence: row.sequence as u64,
             kind,
@@ -115,7 +127,11 @@ pub async fn list_events(pool: &PgPool, agreement_id: &str) -> Result<Vec<DealEv
             prev_event_hash: row.prev_event_hash,
             created_at: row.created_at,
             signature,
-        });
+        };
+        if event.event_hash().map_err(ApiError::from)? != row.event_hash {
+            return Err(ApiError::Internal("stored event hash mismatch".into()));
+        }
+        events.push(event);
     }
     return Ok(events);
 }
@@ -128,6 +144,7 @@ struct EventRow {
     payload: serde_json::Value,
     actor_pubkey: String,
     prev_event_hash: String,
+    event_hash: String,
     signature_json: Option<serde_json::Value>,
     created_at: chrono::DateTime<chrono::Utc>,
 }
