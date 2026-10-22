@@ -34,9 +34,11 @@ impl EscrowKeys {
             parse_compressed_pubkey(&self.mediator_pubkey)?,
         ];
         keys.sort_by_key(|a| a.serialize());
-        if keys[0] == keys[1] || keys[1] == keys[2] || keys[0] == keys[2] {
+        let identities: std::collections::HashSet<_> =
+            keys.iter().map(|key| key.x_only_public_key().0).collect();
+        if identities.len() != 3 {
             return Err(BitcoinError::InvalidKey(
-                "buyer, seller, and mediator pubkeys must be three distinct keys".into(),
+                "escrow requires three distinct participant keys".into(),
             ));
         }
 
