@@ -198,9 +198,23 @@ pub async fn create_deal(
     if !state.mediator_pubkeys.is_empty() && !state.mediator_pubkeys.contains(&mediator) {
         return Err(ApiError::bad_request("mediator is not configured"));
     }
-    for (role,key) in [("seller",seller.as_str()),("buyer",buyer.as_str()),("mediator",mediator.as_str())] { assert_allowlisted(state,role,key)?; }
-    opendeal_bitcoin::FeeDustPolicy::default().validate_deal_amount(req.amount_sats).map_err(|error| ApiError::bad_request(error.to_string()))?;
-    if state.config.pilot_max_amount_sats.is_some_and(|max| req.amount_sats>max) { return Err(ApiError::bad_request("deal exceeds PILOT_MAX_AMOUNT_SATS")); }
+    for (role, key) in [
+        ("seller", seller.as_str()),
+        ("buyer", buyer.as_str()),
+        ("mediator", mediator.as_str()),
+    ] {
+        assert_allowlisted(state, role, key)?;
+    }
+    opendeal_bitcoin::FeeDustPolicy::default()
+        .validate_deal_amount(req.amount_sats)
+        .map_err(|error| ApiError::bad_request(error.to_string()))?;
+    if state
+        .config
+        .pilot_max_amount_sats
+        .is_some_and(|max| req.amount_sats > max)
+    {
+        return Err(ApiError::bad_request("deal exceeds PILOT_MAX_AMOUNT_SATS"));
+    }
     let model = state.settlement.settlement_model();
     if model != opendeal_core::SettlementModel::BitcoinMultisig2of3 {
         return Err(ApiError::bad_request(
@@ -1048,7 +1062,6 @@ fn assert_allowlisted(state: &AppState, role: &str, pubkey: &str) -> Result<(), 
     }
     return Ok(());
 }
-
 
 #[derive(Debug, serde::Serialize)]
 pub struct Reputation {

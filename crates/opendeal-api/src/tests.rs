@@ -37,14 +37,39 @@ fn test_config() -> Config {
         bitcoin_max_fee_sats: 10_000,
         bitcoin_max_fee_bps: 1000,
         bitcoin_network: "regtest".into(),
+        pilot_max_amount_sats: None,
+        security_review_ack: false,
+        allowed_pubkeys: vec![],
+        bitcoin_rpc_fallback_url: None,
+        rate_limit_per_minute: 10000,
+        lightning_api_url: None,
+        lightning_api_key: None,
+        fiat_api_url: None,
+        fiat_api_key: None,
+        webhook_max_attempts: 8,
+        webhook_retry_interval_secs: 15,
+        evidence_dir: std::env::temp_dir().join("opendeal-test-evidence"),
+        r2_bucket: None,
+        r2_endpoint: None,
+        r2_access_key_id: None,
+        r2_secret_access_key: None,
+        r2_region: "auto".into(),
+        resend_api_key: None,
+        email_from: None,
+        otel_endpoint: None,
+        sentry_dsn: None,
         allow_mainnet: false,
         webhook_signing_secret: "test-only-webhook-secret".into(),
     }
 }
 
-fn mock_state(pool: sqlx::PgPool, mock: Arc<MockBitcoinRpc>) -> AppState {
+async fn mock_state(pool: sqlx::PgPool, mock: Arc<MockBitcoinRpc>) -> AppState {
     let adapter = MultisigSettlementAdapter::new(BitcoinMultisigAdapter::new(mock.clone(), 1));
-    let mut state = AppState::new(pool, test_config(), Arc::new(adapter));
+    let config = test_config();
+    let storage = crate::storage::ObjectStorage::from_config(&config)
+        .await
+        .unwrap();
+    let mut state = AppState::new(pool, config, Arc::new(adapter), storage);
     state.rpc = mock;
     state
 }
@@ -54,7 +79,7 @@ async fn private_routes_require_authentication() {
     let pool = PgPoolOptions::new()
         .connect_lazy("postgres://localhost/opendeal_test")
         .unwrap();
-    let app = build_app(mock_state(pool, Arc::new(MockBitcoinRpc::new())));
+    let app = build_app(mock_state(pool, Arc::new(MockBitcoinRpc::new())).await);
     for path in [
         "/api/v1/deals/nope",
         "/api/v1/deals/nope/receipt",
@@ -81,7 +106,11 @@ async fn private_routes_require_authentication() {
         serde_json::to_value(<crate::openapi::ApiDoc as utoipa::OpenApi>::openapi()).unwrap();
     let mut protected_operations = 0;
     for (path, item) in contract["paths"].as_object().unwrap() {
-        if !path.starts_with("/api/v1/") || path.starts_with("/api/v1/auth/") {
+        if !path.starts_with("/api/v1/")
+            || path.starts_with("/api/v1/auth/")
+            || path == "/api/v1/meta"
+            || path.contains("/reputation/")
+        {
             continue;
         }
         for (method, _) in item.as_object().unwrap() {
@@ -89,7 +118,9 @@ async fn private_routes_require_authentication() {
                 continue;
             }
             protected_operations += 1;
-            let uri = path.replace("{id}", "00000000-0000-0000-0000-000000000000");
+            let uri = path
+                .replace("{id}", "00000000-0000-0000-0000-000000000000")
+                .replace("{evidence_id}", "00000000-0000-0000-0000-000000000000");
             let response = app
                 .clone()
                 .oneshot(
@@ -109,7 +140,7 @@ async fn private_routes_require_authentication() {
             );
         }
     }
-    assert_eq!(protected_operations, 21);
+    assert_eq!(protected_operations, 23);
     let mut signature = json!({"sig":"00".repeat(64),"pubkey":"02".to_owned()+&"11".repeat(32)});
     signature["private_key"] = json!("forbidden-field");
     assert!(serde_json::from_value::<opendeal_core::Signature>(signature).is_err());
@@ -214,7 +245,7 @@ impl Fixture {
             .await
             .expect("apply migrations to disposable database");
         let mock = Arc::new(MockBitcoinRpc::new());
-        let app = build_app(mock_state(pool.clone(), mock.clone()));
+        let app = build_app(mock_state(pool.clone(), mock.clone()).await);
         Self {
             app,
             pool,

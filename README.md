@@ -96,3 +96,7 @@ Set `SETTLEMENT_MODEL`:
 ## License
 
 MIT. See [`LICENSE`](./LICENSE).
+
+## Backend integration
+
+See [regtest setup](docs/regtest-backend.md), [API contract](docs/frontend-api-integration.md), and [validation results](docs/backend-integration-results.md).

@@ -58,8 +58,13 @@ pub async fn register_endpoint(
     owner_pubkey: &str,
     url: String,
 ) -> Result<WebhookEndpoint, ApiError> {
-    let parsed=reqwest::Url::parse(&url).map_err(|_|ApiError::bad_request("invalid webhook URL"))?;
-    if parsed.scheme()!="https" || !parsed.username().is_empty() || parsed.password().is_some() { return Err(ApiError::bad_request("webhook URL must use HTTPS without credentials")); }
+    let parsed =
+        reqwest::Url::parse(&url).map_err(|_| ApiError::bad_request("invalid webhook URL"))?;
+    if parsed.scheme() != "https" || !parsed.username().is_empty() || parsed.password().is_some() {
+        return Err(ApiError::bad_request(
+            "webhook URL must use HTTPS without credentials",
+        ));
+    }
     let id = Uuid::new_v4();
     let secret = format!("whsec_{}", Uuid::new_v4());
     let row = sqlx::query_as::<_, WebhookEndpoint>(
@@ -90,7 +95,9 @@ pub async fn enqueue_event_conn(
 }
 
 pub fn spawn_retry_worker(state: AppState) {
-    if std::env::var("WEBHOOK_DELIVERY_ENABLED").as_deref()!=Ok("true") { return; }
+    if std::env::var("WEBHOOK_DELIVERY_ENABLED").as_deref() != Ok("true") {
+        return;
+    }
     tokio::spawn(async move {
         let interval = Duration::from_secs(state.config.webhook_retry_interval_secs.max(5));
         loop {
@@ -150,12 +157,30 @@ async fn deliver_once(
     let attempts = prior_attempts + 1;
     let body = payload.to_string();
     let signature = sign_payload(secret, &body);
-    let parsed=reqwest::Url::parse(url).map_err(|_| ApiError::bad_request("invalid webhook URL"))?;
-    let allowed=std::env::var("WEBHOOK_ALLOWED_HOSTS").unwrap_or_default();
-    if parsed.scheme()!="https" || !parsed.username().is_empty() || parsed.password().is_some() || !allowed.split(',').any(|host| !host.trim().is_empty() && Some(host.trim())==parsed.host_str()) {
-        return mark_failure(pool,delivery_id,attempts,max_attempts,"webhook host is not explicitly allowed").await;
+    let parsed =
+        reqwest::Url::parse(url).map_err(|_| ApiError::bad_request("invalid webhook URL"))?;
+    let allowed = std::env::var("WEBHOOK_ALLOWED_HOSTS").unwrap_or_default();
+    if parsed.scheme() != "https"
+        || !parsed.username().is_empty()
+        || parsed.password().is_some()
+        || !allowed
+            .split(',')
+            .any(|host| !host.trim().is_empty() && Some(host.trim()) == parsed.host_str())
+    {
+        return mark_failure(
+            pool,
+            delivery_id,
+            attempts,
+            max_attempts,
+            "webhook host is not explicitly allowed",
+        )
+        .await;
     }
-    let client = reqwest::Client::builder().redirect(reqwest::redirect::Policy::none()).timeout(Duration::from_secs(10)).build().map_err(|_|ApiError::Internal("webhook client initialization failed".into()))?;
+    let client = reqwest::Client::builder()
+        .redirect(reqwest::redirect::Policy::none())
+        .timeout(Duration::from_secs(10))
+        .build()
+        .map_err(|_| ApiError::Internal("webhook client initialization failed".into()))?;
     let result = client
         .post(url)
         .header("Content-Type", "application/json")
@@ -183,8 +208,15 @@ async fn deliver_once(
             let err = format!("http {}", resp.status());
             mark_failure(pool, delivery_id, attempts, max_attempts, &err).await?;
         }
-        Err(err) => {
-            mark_failure(pool, delivery_id, attempts, max_attempts, &"webhook transport failure").await?;
+        Err(_) => {
+            mark_failure(
+                pool,
+                delivery_id,
+                attempts,
+                max_attempts,
+                "webhook transport failure",
+            )
+            .await?;
         }
     }
     return Ok(());

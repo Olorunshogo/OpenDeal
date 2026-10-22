@@ -26,7 +26,9 @@ struct Cli {
 #[derive(Subcommand)]
 enum Commands {
     LaptopSale,
-    VerifyReceipt { path: String },
+    VerifyReceipt {
+        path: String,
+    },
     LiveE2e {
         #[arg(long, default_value = "http://127.0.0.1:8080")]
         api_url: String,
@@ -263,11 +265,7 @@ impl Api {
         };
     }
 
-    async fn post_auth<T: for<'de> Deserialize<'de>>(
-        &self,
-        path: &str,
-        body: Value,
-    ) -> Result<T> {
+    async fn post_auth<T: for<'de> Deserialize<'de>>(&self, path: &str, body: Value) -> Result<T> {
         let url = format!("{}{}", self.base, path);
         let response = self.client.post(&url).json(&body).send().await?;
         let status = response.status();
@@ -320,10 +318,7 @@ async fn mint_party(api: &Api, sk_bytes: [u8; 32]) -> Result<Party> {
     let sk = SecretKey::from_slice(&sk_bytes).context("secret key")?;
     let pubkey = hex::encode(secp256k1::PublicKey::from_secret_key(&secp, &sk).serialize());
     let login: LoginData = api
-        .post_auth(
-            "/api/v1/auth/dev/session",
-            json!({ "pubkey": pubkey }),
-        )
+        .post_auth("/api/v1/auth/dev/session", json!({ "pubkey": pubkey }))
         .await
         .context("dev session (is APP_ENV=development and API up?)")?;
     return Ok(Party {
@@ -374,11 +369,13 @@ async fn run_live_e2e(
 
     let wallet = "opendeal_funder";
     let _ = btc
-        .call(None, "createwallet", json!([wallet, false, false, "", false, true]))
+        .call(
+            None,
+            "createwallet",
+            json!([wallet, false, false, "", false, true]),
+        )
         .await;
-    let _ = btc
-        .call(None, "loadwallet", json!([wallet]))
-        .await;
+    let _ = btc.call(None, "loadwallet", json!([wallet])).await;
 
     let mine_addr = btc
         .call(Some(wallet), "getnewaddress", json!([]))
@@ -469,11 +466,7 @@ async fn run_live_e2e(
 
     let amount_btc = amount_sats as f64 / 100_000_000.0;
     let fund_txid = btc
-        .call(
-            Some(wallet),
-            "sendtoaddress",
-            json!([escrow, amount_btc]),
-        )
+        .call(Some(wallet), "sendtoaddress", json!([escrow, amount_btc]))
         .await
         .context("sendtoaddress escrow")?
         .as_str()

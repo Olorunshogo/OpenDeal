@@ -10,11 +10,11 @@ use axum::http::{HeaderName, HeaderValue, Method, StatusCode, header};
 use axum::middleware::{self, Next};
 use axum::response::Response;
 use axum::routing::get;
-use serde::Serialize;
 use opendeal_bitcoin::{
     BitcoinMultisigAdapter, HttpBitcoinRpc, MockBitcoinRpc, RedundantBitcoinRpc,
 };
 use opendeal_core::SettlementModel;
+use serde::Serialize;
 use sqlx::postgres::PgPoolOptions;
 use tower_http::cors::{AllowOrigin, CorsLayer};
 use tower_http::limit::RequestBodyLimitLayer;
@@ -186,7 +186,11 @@ pub async fn build_state(config: Config) -> Result<AppState, StartupError> {
                 if let Some(fallback) = &config.bitcoin_rpc_fallback_url {
                     Arc::new(RedundantBitcoinRpc::new(
                         primary,
-                        Arc::new(HttpBitcoinRpc::new(fallback.clone(), config.bitcoin_rpc_user.clone().unwrap_or_default(), config.bitcoin_rpc_password.clone().unwrap_or_default())),
+                        Arc::new(HttpBitcoinRpc::new(
+                            fallback.clone(),
+                            config.bitcoin_rpc_user.clone().unwrap_or_default(),
+                            config.bitcoin_rpc_password.clone().unwrap_or_default(),
+                        )),
                     ))
                 } else {
                     primary
@@ -196,26 +200,26 @@ pub async fn build_state(config: Config) -> Result<AppState, StartupError> {
         }
         SettlementModel::LightningProvider => {
             match (&config.lightning_api_url, &config.lightning_api_key) {
-                (Some(url), Some(key)) => Arc::new(settlement::LightningSettlementAdapter::with_http(
-                    settlement::HttpInvoiceClient::new(url, key, "lightning_provider"),
-                )),
+                (Some(url), Some(key)) => {
+                    Arc::new(settlement::LightningSettlementAdapter::with_http(
+                        settlement::HttpInvoiceClient::new(url, key, "lightning_provider"),
+                    ))
+                }
                 _ => {
                     tracing::warn!("LIGHTNING_API_URL unset; using in-memory Lightning stub");
                     Arc::new(settlement::LightningSettlementAdapter::new())
                 }
             }
         }
-        SettlementModel::FiatProvider => {
-            match (&config.fiat_api_url, &config.fiat_api_key) {
-                (Some(url), Some(key)) => Arc::new(settlement::FiatSettlementAdapter::with_http(
-                    settlement::HttpInvoiceClient::new(url, key, "fiat_provider"),
-                )),
-                _ => {
-                    tracing::warn!("FIAT_API_URL unset; using in-memory fiat stub");
-                    Arc::new(settlement::FiatSettlementAdapter::new())
-                }
+        SettlementModel::FiatProvider => match (&config.fiat_api_url, &config.fiat_api_key) {
+            (Some(url), Some(key)) => Arc::new(settlement::FiatSettlementAdapter::with_http(
+                settlement::HttpInvoiceClient::new(url, key, "fiat_provider"),
+            )),
+            _ => {
+                tracing::warn!("FIAT_API_URL unset; using in-memory fiat stub");
+                Arc::new(settlement::FiatSettlementAdapter::new())
             }
-        }
+        },
         SettlementModel::Simulated => Arc::new(settlement::SimulatedSettlementAdapter),
     };
 

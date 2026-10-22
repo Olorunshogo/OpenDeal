@@ -1,4 +1,3 @@
-use sha2::Digest;
 use axum::body::Body;
 use axum::extract::{Path, State};
 use axum::http::{HeaderValue, StatusCode, header};
@@ -8,11 +7,12 @@ use axum::{Json, Router};
 use chrono::{DateTime, Utc};
 use opendeal_core::{EventKind, EventPayload};
 use serde::{Deserialize, Serialize};
+use sha2::Digest;
 use uuid::Uuid;
 
 use crate::auth::extractor::AuthenticatedUser;
-use crate::deals::service;
 use crate::deals::events::append_event_conn;
+use crate::deals::service;
 use crate::error::ApiError;
 use crate::response::ApiEnvelope;
 use crate::state::AppState;
@@ -55,13 +55,15 @@ async fn submit(
     Json(req): Json<SubmitEvidenceRequest>,
 ) -> Result<Json<ApiEnvelope<Evidence>>, ApiError> {
     let (mut tx, deal) = service::locked(&state, &id, &user.pubkey).await?;
-    if !service::is_seller(&deal,&user.pubkey) && !service::is_buyer(&deal,&user.pubkey) {
+    if !service::is_seller(&deal, &user.pubkey) && !service::is_buyer(&deal, &user.pubkey) {
         return Err(ApiError::forbidden(
             "only buyer or seller may submit evidence",
         ));
     }
 
-    if req.kind.trim().is_empty() || req.kind.len()>64 { return Err(ApiError::bad_request("invalid evidence kind")); }
+    if req.kind.trim().is_empty() || req.kind.len() > 64 {
+        return Err(ApiError::bad_request("invalid evidence kind"));
+    }
     let evidence_id = Uuid::new_v4();
     let mut content = req.content.unwrap_or_default();
     let mut object_key: Option<String> = None;
@@ -133,7 +135,7 @@ async fn list(
     user: AuthenticatedUser,
     Path(id): Path<String>,
 ) -> Result<Json<ApiEnvelope<Vec<Evidence>>>, ApiError> {
-    service::assert_party(&service::get_deal(&state.pool,&id).await?,&user.pubkey)?;
+    service::assert_party(&service::get_deal(&state.pool, &id).await?, &user.pubkey)?;
     let rows = sqlx::query_as::<_, Evidence>(
         r#"
         SELECT id, agreement_id, kind, content, submitted_by, created_at,
@@ -152,7 +154,7 @@ async fn download(
     user: AuthenticatedUser,
     Path((id, evidence_id)): Path<(String, Uuid)>,
 ) -> Result<Response, ApiError> {
-    service::assert_party(&service::get_deal(&state.pool,&id).await?,&user.pubkey)?;
+    service::assert_party(&service::get_deal(&state.pool, &id).await?, &user.pubkey)?;
 
     let row: Option<(Option<String>, Option<String>, String)> = sqlx::query_as(
         r#"
@@ -187,6 +189,9 @@ async fn download(
     response
         .headers_mut()
         .insert(header::CONTENT_TYPE, content_type_header);
-    response.headers_mut().insert(header::CONTENT_DISPOSITION, HeaderValue::from_static("attachment"));
+    response.headers_mut().insert(
+        header::CONTENT_DISPOSITION,
+        HeaderValue::from_static("attachment"),
+    );
     return Ok(response);
 }

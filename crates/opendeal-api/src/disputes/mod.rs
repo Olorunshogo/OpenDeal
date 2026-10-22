@@ -55,7 +55,6 @@ pub struct ListDisputesQuery {
     pub status: Option<String>,
 }
 
-
 pub fn router() -> Router<AppState> {
     Router::new()
         .route("/disputes", get(list_disputes))
@@ -216,4 +215,3 @@ async fn list_disputes(
 
     return Ok(Json(ApiEnvelope::ok("disputes", rows)));
 }
-

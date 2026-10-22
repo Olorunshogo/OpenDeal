@@ -238,9 +238,7 @@ impl Config {
                 ));
             }
             if self.mediator_pubkeys.is_empty() {
-                return Err(ConfigError(
-                    "mainnet requires MEDIATOR_PUBKEYS".into(),
-                ));
+                return Err(ConfigError("mainnet requires MEDIATOR_PUBKEYS".into()));
             }
             if self.allowed_pubkeys.is_empty() {
                 return Err(ConfigError(
@@ -266,9 +264,7 @@ impl Config {
                 ));
             }
             if self.bitcoin_rpc_url.is_none() {
-                return Err(ConfigError(
-                    "mainnet requires BITCOIN_RPC_URL".into(),
-                ));
+                return Err(ConfigError("mainnet requires BITCOIN_RPC_URL".into()));
             }
         }
         let r2_any = self.r2_bucket.is_some()
@@ -345,10 +341,7 @@ impl Config {
 }
 
 pub fn is_mainnet_name(network: &str) -> bool {
-    return matches!(
-        network.to_ascii_lowercase().as_str(),
-        "bitcoin" | "mainnet"
-    );
+    return matches!(network.to_ascii_lowercase().as_str(), "bitcoin" | "mainnet");
 }
 
 fn split_csv(name: &str) -> Vec<String> {

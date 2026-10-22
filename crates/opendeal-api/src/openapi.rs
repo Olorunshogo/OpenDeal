@@ -9,7 +9,10 @@ impl OpenApi for ApiDoc {
     fn openapi() -> utoipa::openapi::OpenApi {
         let mut paths = serde_json::Map::new();
         for (method, path, summary, request, response) in operations() {
-            let public = path.starts_with("/health") || path.starts_with("/api/v1/auth/") || path == "/api/v1/meta" || path.starts_with("/api/v1/deals/reputation/");
+            let public = path.starts_with("/health")
+                || path.starts_with("/api/v1/auth/")
+                || path == "/api/v1/meta"
+                || path.starts_with("/api/v1/deals/reputation/");
             let mut operation = json!({
                 "summary":summary,
                 "operationId":format!("{}_{}",method,path.replace('/',"_").replace(['{','}'],"")),
@@ -47,9 +50,15 @@ impl OpenApi for ApiDoc {
                 operation["requestBody"]["content"]["application/json"]["schema"]["required"] =
                     json!([]);
             }
-            if path.contains("{pubkey}") { operation["parameters"]=json!([{"name":"pubkey","in":"path","required":true,"schema":{"type":"string"}}]); }
-            if path.contains("{evidence_id}") { operation["parameters"].as_array_mut().expect("id parameter").push(json!({"name":"evidence_id","in":"path","required":true,"schema":{"type":"string","format":"uuid"}})); }
-            if path.ends_with("/content") { operation["responses"]["200"]=json!({"description":"Attachment","content":{"application/octet-stream":{"schema":{"type":"string","format":"binary"}}}}); }
+            if path.contains("{pubkey}") {
+                operation["parameters"] = json!([{"name":"pubkey","in":"path","required":true,"schema":{"type":"string"}}]);
+            }
+            if path.contains("{evidence_id}") {
+                operation["parameters"].as_array_mut().expect("id parameter").push(json!({"name":"evidence_id","in":"path","required":true,"schema":{"type":"string","format":"uuid"}}));
+            }
+            if path.ends_with("/content") {
+                operation["responses"]["200"] = json!({"description":"Attachment","content":{"application/octet-stream":{"schema":{"type":"string","format":"binary"}}}});
+            }
             if path.starts_with("/health") {
                 operation["responses"]["200"] = json!({"description":summary,"content":{"text/plain":{"schema":{"type":"string"},"example":if path.ends_with("ready") {"ready"} else {"ok"}}}});
                 if path.ends_with("ready") {
@@ -86,12 +95,41 @@ fn schema(example: &Value) -> Value {
 fn operations() -> Vec<(&'static str, &'static str, &'static str, Value, Value)> {
     let deal = json!({"id":"<agreement-sha256>","status":"draft","amount_sats":100000,"network":"regtest","settlement_phase":"none","settlement_txid":null,"settlement_confirmations":0,"current_psbt":null});
     vec![
-        ("get","/api/v1/meta","Public deployment network and custody metadata",Value::Null,json!({"network":"regtest"})),
-        ("post","/api/v1/auth/dev/session","Development-only session helper; disabled in production",json!({"pubkey":"<xonly>"}),json!({"token":"<JWT>"})),
-        ("get","/api/v1/deals/reputation/{pubkey}","Public aggregate reputation",Value::Null,json!({"settled":0})),
-        ("get","/api/v1/disputes","List disputes assigned to this configured mediator",Value::Null,json!([])),
-        ("get","/api/v1/deals/{id}/evidence/{evidence_id}/content","Download private evidence as an attachment",Value::Null,json!("<bytes>")),
-
+        (
+            "get",
+            "/api/v1/meta",
+            "Public deployment network and custody metadata",
+            Value::Null,
+            json!({"network":"regtest"}),
+        ),
+        (
+            "post",
+            "/api/v1/auth/dev/session",
+            "Development-only session helper; disabled in production",
+            json!({"pubkey":"<xonly>"}),
+            json!({"token":"<JWT>"}),
+        ),
+        (
+            "get",
+            "/api/v1/deals/reputation/{pubkey}",
+            "Public aggregate reputation",
+            Value::Null,
+            json!({"settled":0}),
+        ),
+        (
+            "get",
+            "/api/v1/disputes",
+            "List disputes assigned to this configured mediator",
+            Value::Null,
+            json!([]),
+        ),
+        (
+            "get",
+            "/api/v1/deals/{id}/evidence/{evidence_id}/content",
+            "Download private evidence as an attachment",
+            Value::Null,
+            json!("<bytes>"),
+        ),
         (
             "get",
             "/health",

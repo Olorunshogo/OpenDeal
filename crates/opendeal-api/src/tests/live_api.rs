@@ -164,7 +164,10 @@ async fn live_api_regtest() {
     let rpc = Arc::new(HttpBitcoinRpc::new(raw_url, user, password));
     rpc.check_network("regtest").await.unwrap();
     let adapter = MultisigSettlementAdapter::new(BitcoinMultisigAdapter::new(rpc.clone(), 1));
-    let mut state = AppState::new(fixture.pool.clone(), config, Arc::new(adapter));
+    let storage = crate::storage::ObjectStorage::from_config(&config)
+        .await
+        .unwrap();
+    let mut state = AppState::new(fixture.pool.clone(), config, Arc::new(adapter), storage);
     state.rpc = rpc.clone();
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let base = format!("http://{}", listener.local_addr().unwrap());

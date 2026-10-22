@@ -15,8 +15,6 @@ pub mod settlement;
 pub use error::BitcoinError;
 pub use escrow::{EscrowDescriptor, EscrowKeys};
 pub use policy::FeeDustPolicy;
-pub use psbt::{
-    SettlementPsbt, SettlementPurpose, finalize_2of3_psbt, sign_psbt_with_secret,
-};
+pub use psbt::{SettlementPsbt, SettlementPurpose, finalize_2of3_psbt, sign_psbt_with_secret};
 pub use rpc::{BitcoinRpc, HttpBitcoinRpc, MockBitcoinRpc, RedundantBitcoinRpc};
 pub use settlement::{BitcoinMultisigAdapter, FundingInfo, FundingStatus};

@@ -34,7 +34,11 @@ pub(crate) struct InvoiceStatusResponse {
 }
 
 impl HttpInvoiceClient {
-    pub fn new(base_url: impl Into<String>, api_key: impl Into<String>, label: impl Into<String>) -> Self {
+    pub fn new(
+        base_url: impl Into<String>,
+        api_key: impl Into<String>,
+        label: impl Into<String>,
+    ) -> Self {
         return HttpInvoiceClient {
             base_url: base_url.into().trim_end_matches('/').to_string(),
             api_key: api_key.into(),
@@ -120,7 +124,10 @@ impl HttpInvoiceClient {
     }
 }
 
-pub(crate) fn status_funded(status: &InvoiceStatusResponse, expected: u64) -> (bool, Option<String>, Option<u64>) {
+pub(crate) fn status_funded(
+    status: &InvoiceStatusResponse,
+    expected: u64,
+) -> (bool, Option<String>, Option<u64>) {
     let amount_ok = status.amount_sats.unwrap_or(expected) == expected;
     let funded = status.funded && amount_ok;
     return (

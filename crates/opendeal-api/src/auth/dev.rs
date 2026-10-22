@@ -27,18 +27,8 @@ async fn dev_session(
             "dev session mint is disabled in production",
         ));
     }
-    let pubkey = request.pubkey.trim().to_ascii_lowercase();
-    let ok_len = pubkey.len() == 64 || pubkey.len() == 66;
-    if !ok_len || !pubkey.chars().all(|c| c.is_ascii_hexdigit()) {
-        return Err(ApiError::bad_request(
-            "pubkey must be 64-hex x-only or 66-hex compressed secp256k1",
-        ));
-    }
-    if pubkey.len() == 66 && !(pubkey.starts_with("02") || pubkey.starts_with("03")) {
-        return Err(ApiError::bad_request(
-            "compressed pubkey must start with 02 or 03",
-        ));
-    }
+    let pubkey = opendeal_core::verification::normalize_identity(&request.pubkey)
+        .map_err(|_| ApiError::bad_request("invalid secp256k1 public key"))?;
 
     let user = sqlx::query_as::<_, User>(
         r#"

@@ -64,7 +64,8 @@ async fn main() {
         .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
         .init();
 
-    let token = env::var("RAILS_PROXY_TOKEN").unwrap_or_else(|_| "dev-rails-proxy-token".to_string());
+    let token =
+        env::var("RAILS_PROXY_TOKEN").unwrap_or_else(|_| "dev-rails-proxy-token".to_string());
     let port: u16 = env::var("PORT")
         .ok()
         .and_then(|v| v.parse().ok())
@@ -86,7 +87,10 @@ async fn main() {
     let listener = tokio::net::TcpListener::bind(("0.0.0.0", port))
         .await
         .expect("bind rails-proxy port");
-    tracing::warn!(port, "rails-proxy listening — SANDBOX ONLY, no real funds move");
+    tracing::warn!(
+        port,
+        "rails-proxy listening — SANDBOX ONLY, no real funds move"
+    );
     axum::serve(listener, app).await.expect("serve rails-proxy");
 }
 

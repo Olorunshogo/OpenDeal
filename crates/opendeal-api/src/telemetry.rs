@@ -48,9 +48,7 @@ pub fn init(json_logs: bool, otel_endpoint: Option<&str>, sentry_dsn: Option<&st
     }
 }
 
-fn build_otel_tracer(
-    endpoint: &str,
-) -> Result<opentelemetry_sdk::trace::Tracer, String> {
+fn build_otel_tracer(endpoint: &str) -> Result<opentelemetry_sdk::trace::Tracer, String> {
     let exporter = SpanExporter::builder()
         .with_tonic()
         .with_endpoint(endpoint)

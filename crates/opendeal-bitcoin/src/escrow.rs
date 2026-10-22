@@ -147,12 +147,10 @@ mod tests {
         let secp = bitcoin::secp256k1::Secp256k1::new();
         let sk1 = bitcoin::secp256k1::SecretKey::from_slice(&[1u8; 32]).unwrap();
         let sk2 = bitcoin::secp256k1::SecretKey::from_slice(&[2u8; 32]).unwrap();
-        let pk1 = hex::encode(
-            bitcoin::secp256k1::PublicKey::from_secret_key(&secp, &sk1).serialize(),
-        );
-        let pk2 = hex::encode(
-            bitcoin::secp256k1::PublicKey::from_secret_key(&secp, &sk2).serialize(),
-        );
+        let pk1 =
+            hex::encode(bitcoin::secp256k1::PublicKey::from_secret_key(&secp, &sk1).serialize());
+        let pk2 =
+            hex::encode(bitcoin::secp256k1::PublicKey::from_secret_key(&secp, &sk2).serialize());
         let keys = EscrowKeys {
             buyer_pubkey: pk1.clone(),
             seller_pubkey: pk2,

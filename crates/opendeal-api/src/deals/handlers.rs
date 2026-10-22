@@ -163,14 +163,22 @@ async fn get_agreement(
 ) -> Result<Json<ApiEnvelope<serde_json::Value>>, ApiError> {
     let deal = service::get_deal(&state.pool, &id).await?;
     service::assert_party(&deal, &user.pubkey)?;
-    let agreement=service::agreement(&deal)?;
-    let canonical_hex=hex::encode(agreement.canonical_bytes().map_err(ApiError::from)?);
-    let signatures: Vec<(String,)> = sqlx::query_as("SELECT pubkey FROM agreement_signatures WHERE agreement_id=$1 ORDER BY pubkey").bind(&id).fetch_all(&state.pool).await?;
-    let mut view=serde_json::to_value(&agreement).map_err(|error| ApiError::Internal(error.to_string()))?;
-    view["agreement"]=serde_json::to_value(agreement).map_err(|error| ApiError::Internal(error.to_string()))?;
-    view["canonical_hex"]=serde_json::json!(canonical_hex);
-    view["signed_pubkeys"]=serde_json::json!(signatures.into_iter().map(|row|row.0).collect::<Vec<_>>());
-    Ok(Json(ApiEnvelope::ok("agreement",view)))
+    let agreement = service::agreement(&deal)?;
+    let canonical_hex = hex::encode(agreement.canonical_bytes().map_err(ApiError::from)?);
+    let signatures: Vec<(String,)> = sqlx::query_as(
+        "SELECT pubkey FROM agreement_signatures WHERE agreement_id=$1 ORDER BY pubkey",
+    )
+    .bind(&id)
+    .fetch_all(&state.pool)
+    .await?;
+    let mut view =
+        serde_json::to_value(&agreement).map_err(|error| ApiError::Internal(error.to_string()))?;
+    view["agreement"] =
+        serde_json::to_value(agreement).map_err(|error| ApiError::Internal(error.to_string()))?;
+    view["canonical_hex"] = serde_json::json!(canonical_hex);
+    view["signed_pubkeys"] =
+        serde_json::json!(signatures.into_iter().map(|row| row.0).collect::<Vec<_>>());
+    Ok(Json(ApiEnvelope::ok("agreement", view)))
 }
 async fn get_funding(
     State(state): State<AppState>,
@@ -227,4 +235,3 @@ async fn get_reputation(
     let reputation = service::reputation(&state.pool, &pubkey).await?;
     return Ok(Json(ApiEnvelope::ok("reputation", reputation)));
 }
-

@@ -57,11 +57,9 @@ pub fn build_settlement_psbt(
     let dest = Address::from_str(destination_address)
         .map_err(|e| BitcoinError::Psbt(e.to_string()))?
         .require_network(network)
-        .map_err(|e| {
-            BitcoinError::NetworkMismatch {
-                expected: escrow.network.clone(),
-                got: e.to_string(),
-            }
+        .map_err(|e| BitcoinError::NetworkMismatch {
+            expected: escrow.network.clone(),
+            got: e.to_string(),
         })?;
 
     let witness_script = ScriptBuf::from_bytes(
@@ -165,10 +163,15 @@ pub fn combine_psbts(base: &str, update: &str) -> Result<String, BitcoinError> {
     return psbt_to_base64(&a);
 }
 
-pub fn sign_psbt_with_secret(psbt_base64: &str, secret: &SecretKey) -> Result<String, BitcoinError> {
+pub fn sign_psbt_with_secret(
+    psbt_base64: &str,
+    secret: &SecretKey,
+) -> Result<String, BitcoinError> {
     let mut psbt = psbt_from_base64(psbt_base64)?;
     if psbt.inputs.len() != 1 {
-        return Err(BitcoinError::Psbt("expected single-input settlement PSBT".into()));
+        return Err(BitcoinError::Psbt(
+            "expected single-input settlement PSBT".into(),
+        ));
     }
     let secp = Secp256k1::new();
     let pubkey = PublicKey::from_secret_key(&secp, secret);
@@ -202,7 +205,9 @@ pub fn sign_psbt_with_secret(psbt_base64: &str, secret: &SecretKey) -> Result<St
 pub fn finalize_2of3_psbt(psbt_base64: &str) -> Result<String, BitcoinError> {
     let mut psbt = psbt_from_base64(psbt_base64)?;
     if psbt.inputs.len() != 1 {
-        return Err(BitcoinError::Psbt("expected single-input settlement PSBT".into()));
+        return Err(BitcoinError::Psbt(
+            "expected single-input settlement PSBT".into(),
+        ));
     }
     if psbt.inputs[0].final_script_witness.is_some() {
         return psbt_to_base64(&psbt);
@@ -216,7 +221,7 @@ pub fn finalize_2of3_psbt(psbt_base64: &str) -> Result<String, BitcoinError> {
     let mut ordered_sigs = Vec::new();
     for pk in &script_pubkeys {
         if let Some(sig) = partial.get(pk) {
-            ordered_sigs.push(sig.clone());
+            ordered_sigs.push(*sig);
         }
     }
     if ordered_sigs.len() < 2 {
@@ -248,7 +253,9 @@ pub fn finalize_2of3_psbt(psbt_base64: &str) -> Result<String, BitcoinError> {
     return psbt_to_base64(&psbt);
 }
 
-fn multisig_pubkeys_from_script(script: &ScriptBuf) -> Result<Vec<bitcoin::PublicKey>, BitcoinError> {
+fn multisig_pubkeys_from_script(
+    script: &ScriptBuf,
+) -> Result<Vec<bitcoin::PublicKey>, BitcoinError> {
     let bytes = script.as_bytes();
     if bytes.len() < 3 + 3 * 34 || bytes[0] != 0x52 {
         return Err(BitcoinError::Script("not a 2-of-3 multisig script".into()));
