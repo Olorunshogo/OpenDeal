@@ -11,7 +11,7 @@ pub enum AppEnv {
     Production,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct Config {
     pub app_env: AppEnv,
     pub port: u16,
@@ -26,7 +26,11 @@ pub struct Config {
     pub mediator_pubkeys: Vec<String>,
     pub settlement_model: SettlementModel,
     pub bitcoin_rpc_url: Option<String>,
+    pub bitcoin_rpc_user: Option<String>,
+    pub bitcoin_rpc_password: Option<String>,
     pub bitcoin_required_confirmations: u32,
+    pub bitcoin_max_fee_sats: u64,
+    pub bitcoin_max_fee_bps: u64,
     pub bitcoin_network: String,
     pub pilot_max_amount_sats: Option<u64>,
     pub allow_mainnet: bool,
@@ -129,6 +133,12 @@ impl Config {
                 .unwrap_or_default(),
             settlement_model,
             bitcoin_rpc_url: optional("BITCOIN_RPC_URL"),
+            bitcoin_rpc_user: optional("BITCOIN_RPC_USER"),
+            bitcoin_rpc_password: env::var("BITCOIN_RPC_PASSWORD")
+                .ok()
+                .filter(|value| !value.trim().is_empty()),
+            bitcoin_max_fee_sats: parse_or("BITCOIN_MAX_FEE_SATS", 10_000)?,
+            bitcoin_max_fee_bps: parse_or("BITCOIN_MAX_FEE_BPS", 1000)?,
             bitcoin_required_confirmations: parse_or("BITCOIN_REQUIRED_CONFIRMATIONS", 1)?,
             bitcoin_network,
             pilot_max_amount_sats,
@@ -174,7 +184,33 @@ impl Config {
         return self.resend_api_key.is_some() && self.email_from.is_some();
     }
 
-    fn validate(&self) -> Result<(), ConfigError> {
+    pub(crate) fn validate(&self) -> Result<(), ConfigError> {
+        opendeal_bitcoin::escrow::parse_network(&self.bitcoin_network)
+            .map_err(|_| ConfigError("invalid BITCOIN_NETWORK".into()))?;
+        if self.bitcoin_required_confirmations == 0
+            || self.bitcoin_max_fee_sats == 0
+            || self.bitcoin_max_fee_bps == 0
+            || self.bitcoin_max_fee_bps > 10_000
+        {
+            return Err(ConfigError("confirmation and fee policies must be positive; fee basis points cannot exceed 10000".into()));
+        }
+        if self.bitcoin_rpc_url.is_some() {
+            for (name, value) in [
+                ("BITCOIN_RPC_USER", &self.bitcoin_rpc_user),
+                ("BITCOIN_RPC_PASSWORD", &self.bitcoin_rpc_password),
+            ] {
+                if value.as_ref().is_none_or(|value| value.trim().is_empty()) {
+                    return Err(ConfigError(format!(
+                        "{} is required when BITCOIN_RPC_URL is set",
+                        name
+                    )));
+                }
+            }
+        }
+        for key in &self.mediator_pubkeys {
+            opendeal_core::verification::normalize_identity(key)
+                .map_err(|_| ConfigError("invalid MEDIATOR_PUBKEYS".into()))?;
+        }
         if self.run_migrations && self.database_admin_url.is_none() {
             return Err(ConfigError(
                 "RUN_MIGRATIONS=true requires DATABASE_ADMIN_URL".into(),
@@ -245,6 +281,29 @@ impl Config {
             ));
         }
         if self.is_production() {
+            if self.jwt_secret.starts_with("dev-") || self.jwt_secret.contains("change-me") {
+                return Err(ConfigError(
+                    "production JWT_SECRET must replace the development placeholder".into(),
+                ));
+            }
+            if self.cors_allowed_origins.is_empty()
+                || self.cors_allowed_origins.iter().any(|origin| {
+                    reqwest::Url::parse(origin).map_or(true, |url| {
+                        url.scheme() != "https"
+                            || url.host_str().is_none()
+                            || !url.username().is_empty()
+                            || url.password().is_some()
+                            || url.path() != "/"
+                            || url.query().is_some()
+                            || url.fragment().is_some()
+                    })
+                })
+            {
+                return Err(ConfigError(
+                    "production requires explicit HTTPS CORS_ALLOWED_ORIGINS".into(),
+                ));
+            }
+
             if self.settlement_model == SettlementModel::Simulated {
                 return Err(ConfigError(
                     "SETTLEMENT_MODEL=simulated is refused in production".into(),
@@ -350,4 +409,14 @@ fn parse_or<T: std::str::FromStr>(name: &str, default: T) -> Result<T, ConfigErr
             .parse()
             .map_err(|_| ConfigError(format!("{} has an invalid value \"{}\"", name, raw))),
     };
+}
+
+// Configuration contains database, JWT, webhook, and RPC secrets.
+impl std::fmt::Debug for Config {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Config")
+            .field("app_env", &self.app_env)
+            .field("port", &self.port)
+            .finish_non_exhaustive()
+    }
 }
