@@ -68,6 +68,7 @@ async fn submit(
         EventPayload::EvidenceSubmitted {
             evidence_id: evidence_id.to_string(),
             kind: req.kind,
+            content_sha256: None,
         },
         &user.pubkey,
         None,
