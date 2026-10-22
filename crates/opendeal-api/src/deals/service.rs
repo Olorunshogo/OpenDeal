@@ -51,6 +51,9 @@ pub async fn create_deal(
     }
     let agreement = Agreement {
         version: Agreement::CURRENT_VERSION,
+        description: None,
+        seller_payout_address: None,
+        buyer_refund_address: None,
         title: req.title.clone(),
         amount_sats: req.amount_sats,
         currency: req.currency.unwrap_or_else(|| "BTC".into()),

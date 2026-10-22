@@ -97,6 +97,9 @@ fn run_laptop_sale() {
 
     let agreement = Agreement {
         version: 1,
+        description: None,
+        seller_payout_address: None,
+        buyer_refund_address: None,
         title: "Used laptop".into(),
         amount_sats: 50_000,
         currency: "BTC".into(),

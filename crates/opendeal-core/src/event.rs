@@ -18,6 +18,10 @@ pub enum EventKind {
     DisputeOpened,
     DisputeResolved,
     SettlementProposed,
+    EscrowPrepared,
+    SettlementBroadcastRequested,
+    SettlementConfirmed,
+    SettlementReorged,
     SettlementBroadcast,
 }
 
@@ -48,6 +52,8 @@ pub enum EventPayload {
     EvidenceSubmitted {
         evidence_id: String,
         kind: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        content_sha256: Option<String>,
     },
     DisputeOpened {
         dispute_id: String,
@@ -61,6 +67,20 @@ pub enum EventPayload {
     SettlementProposed {
         psbt_base64: String,
         purpose: String,
+    },
+    EscrowPrepared {
+        address: String,
+    },
+    SettlementBroadcastRequested {
+        txid: String,
+    },
+    SettlementConfirmed {
+        txid: String,
+        confirmations: u32,
+        block_hash: Option<String>,
+    },
+    SettlementReorged {
+        txid: String,
     },
     SettlementBroadcast {
         txid: String,
