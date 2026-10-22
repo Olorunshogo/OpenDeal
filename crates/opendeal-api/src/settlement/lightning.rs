@@ -7,19 +7,30 @@ use opendeal_bitcoin::{
 };
 use opendeal_core::SettlementModel;
 
+use super::http_invoice::{HttpInvoiceClient, status_funded};
 use super::{ProviderCheckout, SettlementAdapter, SettlementError};
 
 /**
- * Lightning / NWC-shaped adapter seam. Phase 3: swap the in-memory map for Bitnob/MavaPay/NWC.
- * Custody is provider-dependent. Never labeled as BitcoinMultisig2of3.
+ * Lightning adapter. With API credentials this calls the operator invoice HTTP API.
+ * Without credentials it keeps an in-memory stub for local development only.
+ * Custody stays with the provider. Never labeled as BitcoinMultisig2of3.
  */
 pub struct LightningSettlementAdapter {
+    http: Option<HttpInvoiceClient>,
     invoices: Mutex<HashMap<String, u64>>,
 }
 
 impl LightningSettlementAdapter {
     pub fn new() -> Self {
         return LightningSettlementAdapter {
+            http: None,
+            invoices: Mutex::new(HashMap::new()),
+        };
+    }
+
+    pub fn with_http(client: HttpInvoiceClient) -> Self {
+        return LightningSettlementAdapter {
+            http: Some(client),
             invoices: Mutex::new(HashMap::new()),
         };
     }
@@ -65,6 +76,18 @@ impl SettlementAdapter for LightningSettlementAdapter {
     ) -> Result<FundingStatus, SettlementError> {
         let reference =
             reference.ok_or_else(|| SettlementError("payment reference required".into()))?;
+        if let Some(http) = &self.http {
+            let status = http.invoice_status(reference).await?;
+            let (confirmed, txid, amount) = status_funded(&status, funding.expected_amount_sats);
+            return Ok(FundingStatus {
+                funded: confirmed,
+                txid: confirmed.then(|| txid.unwrap_or_else(|| format!("ln:{reference}"))),
+                vout: confirmed.then_some(0),
+                amount_sats: amount,
+                confirmations: if confirmed { 1 } else { 0 },
+                script_matches: confirmed,
+            });
+        }
         let map = self.invoices.lock().expect("lightning invoice mutex");
         let confirmed = map.get(reference).copied() == Some(funding.expected_amount_sats);
         return Ok(FundingStatus {
@@ -113,6 +136,9 @@ impl SettlementAdapter for LightningSettlementAdapter {
         reference: &str,
         amount_sats: u64,
     ) -> Result<ProviderCheckout, SettlementError> {
+        if let Some(http) = &self.http {
+            return http.create_invoice(reference, amount_sats).await;
+        }
         self.invoices
             .lock()
             .expect("lightning invoice mutex")
@@ -120,15 +146,21 @@ impl SettlementAdapter for LightningSettlementAdapter {
         return Ok(ProviderCheckout {
             reference: reference.to_string(),
             checkout_reference: format!("lnbc_stub_{}", reference),
-            label: "lightning_provider".into(),
+            label: "lightning_provider_stub".into(),
         });
     }
 
-    async fn provider_release(&self, _reference: &str) -> Result<(), SettlementError> {
+    async fn provider_release(&self, reference: &str) -> Result<(), SettlementError> {
+        if let Some(http) = &self.http {
+            return http.post_action(reference, "release").await;
+        }
         return Ok(());
     }
 
-    async fn provider_refund(&self, _reference: &str) -> Result<(), SettlementError> {
+    async fn provider_refund(&self, reference: &str) -> Result<(), SettlementError> {
+        if let Some(http) = &self.http {
+            return http.post_action(reference, "refund").await;
+        }
         return Ok(());
     }
 }

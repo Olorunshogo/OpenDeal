@@ -20,7 +20,7 @@ A buyer and a seller who found each other online (WhatsApp, Jiji, social) need a
 
 It is not another marketplace. Settlement adapters keep Lightning/fiat pluggable later, with honest custody labels.
 
-See [`docs/protocol.md`](./docs/protocol.md), [`docs/threat-model.md`](./docs/threat-model.md), [`docs/recovery.md`](./docs/recovery.md), [`docs/mediator-policy.md`](./docs/mediator-policy.md), [`docs/testnet-pilot.md`](./docs/testnet-pilot.md), [`docs/security-review.md`](./docs/security-review.md), [`docs/roadmap.md`](./docs/roadmap.md), and [`docs/deploy.md`](./docs/deploy.md).
+See [`docs/protocol.md`](./docs/protocol.md), [`docs/threat-model.md`](./docs/threat-model.md), [`docs/recovery.md`](./docs/recovery.md), [`docs/mediator-policy.md`](./docs/mediator-policy.md), [`docs/testnet-pilot.md`](./docs/testnet-pilot.md), [`docs/mainnet-pilot.md`](./docs/mainnet-pilot.md), [`docs/rails.md`](./docs/rails.md), [`docs/compliance.md`](./docs/compliance.md), [`docs/security-review.md`](./docs/security-review.md), [`docs/roadmap.md`](./docs/roadmap.md), and [`docs/deploy.md`](./docs/deploy.md).
 
 ## Repository layout
 
@@ -39,9 +39,12 @@ Phased plan and status: [`docs/roadmap.md`](./docs/roadmap.md).
 
 Requires Rust (stable), Node 24+, pnpm, Docker, Make.
 
+Both `.env.example` files are committed templates. `cp -n` only writes the real file if it
+doesn't exist yet, so this is safe to re-run.
+
 ```bash
 cp -n crates/opendeal-api/.env.example crates/opendeal-api/.env
-cp -n frontend/.env.local.example frontend/.env.local
+cp -n frontend/.env.example frontend/.env.local
 
 make up                 # Postgres (:5434) + bitcoind
 make install-frontend   # once
@@ -49,7 +52,8 @@ make api                # terminal 1 (runs migrations when RUN_MIGRATIONS=true)
 make frontend           # terminal 2
 ```
 
-See `make help` for the full command list. Deploy notes: [`docs/deploy.md`](./docs/deploy.md).
+That's the whole setup: two `cp` lines, `make up`, then the API and frontend each in their own
+terminal. See `make help` for the full command list. Deploy notes: [`docs/deploy.md`](./docs/deploy.md).
 
 API: `http://localhost:8080` · OpenAPI UI: `/docs` · Frontend: `http://localhost:3000`
 

@@ -8,7 +8,7 @@ If live regtest fails during a pitch, use a pre-recorded walkthrough.
 docker compose up -d
 cd crates/opendeal-api && cp -n .env.example .env && cargo run -p opendeal-api
 # other terminal
-cd frontend && cp -n .env.local.example .env.local && pnpm install && pnpm dev
+cd frontend && cp -n .env.example .env.local && pnpm install && pnpm dev
 ```
 
 One-command protocol + chain smoke (API must already be up):

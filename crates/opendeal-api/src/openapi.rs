@@ -26,10 +26,12 @@ use utoipa::OpenApi;
         deals_settlement_finalize,
         deals_events,
         deals_receipt,
+        deals_reputation,
         evidence_submit,
         evidence_list,
         evidence_download,
         disputes_open,
+        disputes_list,
         disputes_get,
         disputes_resolve,
         webhooks_register,
@@ -202,6 +204,15 @@ fn deals_settlement_finalize() {}
 #[allow(dead_code)]
 #[utoipa::path(
     get,
+    path = "/api/v1/deals/reputation/{pubkey}",
+    tag = "deals",
+    responses((status = 200, description = "Counts from verified deal rows"))
+)]
+fn deals_reputation() {}
+
+#[allow(dead_code)]
+#[utoipa::path(
+    get,
     path = "/api/v1/deals/{id}/events",
     tag = "deals",
     params(("id" = String, Path, description = "deal id")),
@@ -263,6 +274,16 @@ fn evidence_download() {}
     responses((status = 200, description = "dispute opened"))
 )]
 fn disputes_open() {}
+
+#[allow(dead_code)]
+#[utoipa::path(
+    get,
+    path = "/api/v1/disputes",
+    tag = "disputes",
+    params(("status" = Option<String>, Query, description = "defaults to \"open\"")),
+    responses((status = 200, description = "disputes for the signed-in mediator"))
+)]
+fn disputes_list() {}
 
 #[allow(dead_code)]
 #[utoipa::path(

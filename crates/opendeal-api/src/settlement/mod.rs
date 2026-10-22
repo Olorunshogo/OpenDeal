@@ -4,8 +4,11 @@
 //! label their custody model via `settlement_model()`.
 
 mod fiat;
+mod http_invoice;
 mod lightning;
 mod simulated;
+
+pub use http_invoice::HttpInvoiceClient;
 
 use async_trait::async_trait;
 use opendeal_bitcoin::{

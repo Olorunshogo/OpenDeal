@@ -4,6 +4,7 @@ members = [
     "crates/opendeal-core",
     "crates/opendeal-bitcoin",
     "crates/opendeal-api",
+    "crates/rails-proxy",
     "examples/regtest-demo",
 ]
 default-members = ["crates/opendeal-api"]

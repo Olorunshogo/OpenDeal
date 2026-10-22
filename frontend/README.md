@@ -3,7 +3,7 @@
 Next.js App Router UI for buyer, seller, and mediator deal flows.
 
 ```bash
-cp .env.local.example .env.local
+cp .env.example .env.local
 pnpm install
 pnpm dev
 ```

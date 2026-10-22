@@ -25,6 +25,9 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           />
         </Link>
         <nav className="flex gap-5 text-sm text-[var(--ink-muted)]">
+          <Link href="/market" className="hover:text-[var(--ink)]">
+            Market
+          </Link>
           <Link href="/deals/new" className="hover:text-[var(--ink)]">
             New deal
           </Link>

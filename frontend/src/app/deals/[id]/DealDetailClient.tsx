@@ -1,10 +1,13 @@
 "use client";
 
-import { useParams } from "next/navigation";
+import Link from "next/link";
+import { useParams, useSearchParams } from "next/navigation";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useMemo, useState } from "react";
 import { AppShell } from "@/components/AppShell";
 import { NetworkBanner } from "@/components/NetworkBanner";
+import { Input } from "@/components/ui/Input";
+import { Textarea } from "@/components/ui/Textarea";
 import {
   attachPsbtSignature,
   finalizeSettlement,
@@ -12,10 +15,13 @@ import {
   getDeal,
   getEvents,
   getReceipt,
+  getReputation,
+  listEvidence,
   openDispute,
   prepareFunding,
   proposeSettlement,
   signAgreement,
+  submitEvidence,
   transitionDeal,
   verifyFunding,
   type Deal,
@@ -29,6 +35,7 @@ import { loadSession, type Session } from "@/lib/session";
 
 export function DealDetailClient() {
   const params = useParams<{ id: string }>();
+  const searchParams = useSearchParams();
   const id = params.id;
   const queryClient = useQueryClient();
   const [error, setError] = useState<string | null>(null);
@@ -42,10 +49,20 @@ export function DealDetailClient() {
   const [reviewed, setReviewed] = useState(false);
   const [declined, setDeclined] = useState(false);
   const [settlementBusy, setSettlementBusy] = useState(false);
+  const [evidenceKind, setEvidenceKind] = useState("note");
+  const [evidenceContent, setEvidenceContent] = useState("");
+  const [evidenceBusy, setEvidenceBusy] = useState(false);
 
   useEffect(() => {
     setSession(loadSession());
   }, []);
+
+  useEffect(() => {
+    const fromMediator = searchParams.get("purpose");
+    if (fromMediator === "payout_seller" || fromMediator === "refund_buyer") {
+      setPurpose(fromMediator);
+    }
+  }, [searchParams]);
 
   const dealQuery = useQuery({
     queryKey: ["deal", id],
@@ -62,11 +79,52 @@ export function DealDetailClient() {
     queryFn: () => getEvents(id),
     enabled: Boolean(id),
   });
+  const evidenceQuery = useQuery({
+    queryKey: ["evidence", id],
+    queryFn: () => listEvidence(id),
+    enabled: Boolean(id),
+  });
+  const sellerReputationQuery = useQuery({
+    queryKey: ["reputation", dealQuery.data?.seller_pubkey],
+    queryFn: () => getReputation(dealQuery.data!.seller_pubkey),
+    enabled: Boolean(dealQuery.data?.seller_pubkey),
+  });
+  const buyerReputationQuery = useQuery({
+    queryKey: ["reputation", dealQuery.data?.buyer_pubkey],
+    queryFn: () => getReputation(dealQuery.data!.buyer_pubkey),
+    enabled: Boolean(dealQuery.data?.buyer_pubkey),
+  });
 
   async function refresh() {
     await queryClient.invalidateQueries({ queryKey: ["deal", id] });
     await queryClient.invalidateQueries({ queryKey: ["agreement", id] });
     await queryClient.invalidateQueries({ queryKey: ["events", id] });
+  }
+
+  async function onSubmitEvidence() {
+    setError(null);
+    const session = loadSession();
+    if (!session?.token) {
+      setError("Sign in first (footer).");
+      return;
+    }
+    if (!evidenceContent.trim()) {
+      setError("Evidence text is required.");
+      return;
+    }
+    setEvidenceBusy(true);
+    try {
+      await submitEvidence(session.token, id, {
+        kind: evidenceKind.trim() || "note",
+        content: evidenceContent.trim(),
+      });
+      setEvidenceContent("");
+      await queryClient.invalidateQueries({ queryKey: ["evidence", id] });
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "evidence submit failed");
+    } finally {
+      setEvidenceBusy(false);
+    }
   }
 
   async function withSession(action: (token: string) => Promise<unknown>) {
@@ -298,6 +356,16 @@ export function DealDetailClient() {
               <p>
                 Amount: {deal.amount_sats.toLocaleString()} sats ({deal.currency})
               </p>
+              <p className="text-xs">
+                Seller history:{" "}
+                {sellerReputationQuery.data
+                  ? `${sellerReputationQuery.data.settled} settled · ${sellerReputationQuery.data.disputed} disputed`
+                  : "…"}
+                {" · "}Buyer history:{" "}
+                {buyerReputationQuery.data
+                  ? `${buyerReputationQuery.data.settled} settled · ${buyerReputationQuery.data.disputed} disputed`
+                  : "…"}
+              </p>
               {deal.escrow_address ? (
                 <p className="break-all font-mono text-xs text-[var(--ink)]">
                   Escrow: {deal.escrow_address}
@@ -310,6 +378,11 @@ export function DealDetailClient() {
                 <p className="break-all font-mono text-xs">Settlement tx: {deal.settlement_txid}</p>
               ) : null}
               <p className="break-all font-mono text-[10px] opacity-70">id: {deal.id}</p>
+              <p>
+                <Link href={`/deals/${deal.id}/checkout`} className="underline">
+                  Checkout view
+                </Link>
+              </p>
             </div>
           ) : null}
 
@@ -382,6 +455,48 @@ export function DealDetailClient() {
               onFinalize={onFinalizeSettlement}
             />
           ) : null}
+
+          <div className="mt-6 rounded border border-[var(--line)] bg-[var(--bg-lift)]/40 p-4">
+            <h2 className="font-[family-name:var(--font-display)] text-xl">Evidence</h2>
+            <p className="mt-1 text-xs text-[var(--ink-muted)]">
+              Text evidence only for now — file uploads use the same API once storage is configured.
+            </p>
+            <ul className="mt-3 space-y-2 text-sm">
+              {(evidenceQuery.data ?? []).map((item) => (
+                <li key={item.id} className="rounded border border-[var(--line)] p-2">
+                  <p className="text-xs uppercase tracking-[0.1em] text-[var(--accent-soft)]">
+                    {item.kind}
+                  </p>
+                  <p className="mt-1 whitespace-pre-wrap break-all">{item.content}</p>
+                  <p className="mt-1 text-[10px] text-[var(--ink-muted)]">
+                    {item.submitted_by.slice(0, 10)}… · {new Date(item.created_at).toLocaleString()}
+                  </p>
+                </li>
+              ))}
+              {evidenceQuery.isSuccess && !evidenceQuery.data?.length ? (
+                <li className="text-xs text-[var(--ink-muted)]">No evidence submitted yet.</li>
+              ) : null}
+            </ul>
+            {isParty ? (
+              <div className="mt-4 flex flex-col gap-2">
+                <Input label="Kind" value={evidenceKind} onChange={(e) => setEvidenceKind(e.target.value)} />
+                <Textarea
+                  label="Evidence"
+                  value={evidenceContent}
+                  onChange={(e) => setEvidenceContent(e.target.value)}
+                  placeholder="Describe what happened, link a photo host, etc."
+                />
+                <button
+                  type="button"
+                  disabled={evidenceBusy || !evidenceContent.trim()}
+                  onClick={onSubmitEvidence}
+                  className="w-fit rounded bg-[var(--accent)] px-4 py-2 text-sm font-semibold text-[var(--bg-deep)] disabled:opacity-40"
+                >
+                  {evidenceBusy ? "Submitting…" : "Submit evidence"}
+                </button>
+              </div>
+            ) : null}
+          </div>
 
           {error ? <p className="mt-4 text-sm text-[var(--danger)]">{error}</p> : null}
 
@@ -550,25 +665,20 @@ function SettlementPanel({
               <option value="refund_buyer">Refund buyer</option>
             </select>
           </label>
-          <label className="flex flex-col gap-1 text-sm">
-            <span className="text-[var(--ink-muted)]">Destination address</span>
-            <input
-              className="rounded border border-[var(--line)] bg-[var(--bg-deep)]/60 px-3 py-2 font-mono text-xs"
-              value={destination}
-              onChange={(e) => setDestination(e.target.value)}
-              placeholder="bcrt1…"
-            />
-          </label>
-          <label className="flex flex-col gap-1 text-sm">
-            <span className="text-[var(--ink-muted)]">Fee (sats)</span>
-            <input
-              type="number"
-              min={200}
-              className="rounded border border-[var(--line)] bg-[var(--bg-deep)]/60 px-3 py-2"
-              value={feeSats}
-              onChange={(e) => setFeeSats(e.target.value)}
-            />
-          </label>
+          <Input
+            label="Destination address"
+            mono
+            value={destination}
+            onChange={(e) => setDestination(e.target.value)}
+            placeholder="bcrt1…"
+          />
+          <Input
+            label="Fee (sats)"
+            type="number"
+            min={200}
+            value={feeSats}
+            onChange={(e) => setFeeSats(e.target.value)}
+          />
           <button
             type="button"
             disabled={busy}
@@ -593,6 +703,11 @@ function SettlementPanel({
           <p>
             Purpose:{" "}
             <span className="text-[var(--accent-soft)]">{purposeLabel(proposedPurpose)}</span>
+          </p>
+          <p className="rounded border border-[var(--accent)]/30 bg-[var(--accent)]/10 px-3 py-2 text-xs text-[var(--accent-soft)]">
+            This {proposedPurpose === "refund_buyer" ? "refunds the buyer" : "pays the seller"}.
+            OpenDeal cannot verify that the destination address below belongs to that party —
+            confirm it with them out of band before you sign.
           </p>
           <p className="break-all font-mono text-[10px] text-[var(--ink-muted)]">
             unsigned txid · {summary.unsigned_txid}
@@ -675,8 +790,15 @@ function SettlementPanel({
                 </button>
                 <button
                   type="button"
-                  disabled={!isParty || busy || Boolean(deal.settlement_txid)}
+                  disabled={
+                    !isParty || busy || Boolean(deal.settlement_txid) || summary.partial_sigs_total < 2
+                  }
                   onClick={onFinalize}
+                  title={
+                    summary.partial_sigs_total < 2
+                      ? "Needs 2 of 3 signatures before it can be finalized"
+                      : undefined
+                  }
                   className="rounded border border-[var(--line)] px-4 py-2 text-sm disabled:opacity-40"
                 >
                   Finalize / broadcast

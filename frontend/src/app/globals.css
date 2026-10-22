@@ -1,16 +1,16 @@
 @import "tailwindcss";
 
 :root {
-  --bg-deep: #0f1f1a;
-  --bg-mid: #1a3329;
-  --bg-lift: #243f34;
-  --ink: #f2efe6;
-  --ink-muted: #b8c4b8;
-  --accent: #d4a24c;
-  --accent-soft: #e8c98a;
-  --line: rgba(242, 239, 230, 0.12);
-  --danger: #e07a5f;
-  --ok: #7cb89a;
+  --bg-deep: #0a0a0a;
+  --bg-mid: #141414;
+  --bg-lift: #1f1f1f;
+  --ink: #f5f5f0;
+  --ink-muted: #a3a39c;
+  --accent: #f0b429;
+  --accent-soft: #f7d070;
+  --line: rgba(245, 245, 240, 0.12);
+  --danger: #e5484d;
+  --ok: #34d399;
   --font-display: var(--font-instrument);
   --font-body: var(--font-figtree);
 }
@@ -27,9 +27,9 @@ body {
   color: var(--ink);
   font-family: var(--font-body), system-ui, sans-serif;
   background:
-    radial-gradient(1200px 600px at 10% -10%, rgba(212, 162, 76, 0.18), transparent 55%),
-    radial-gradient(900px 500px at 90% 0%, rgba(124, 184, 154, 0.14), transparent 50%),
-    linear-gradient(165deg, var(--bg-deep) 0%, var(--bg-mid) 48%, #12261f 100%);
+    radial-gradient(1200px 600px at 10% -10%, rgba(240, 180, 41, 0.16), transparent 55%),
+    radial-gradient(900px 500px at 90% 0%, rgba(245, 245, 240, 0.05), transparent 50%),
+    linear-gradient(165deg, var(--bg-deep) 0%, var(--bg-mid) 48%, #000000 100%);
   background-attachment: fixed;
 }
 
@@ -69,4 +69,12 @@ a {
 
 .network-badge {
   animation: pulse-line 2.8s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .animate-rise,
+  .animate-rise-delay,
+  .network-badge {
+    animation: none !important;
+  }
 }

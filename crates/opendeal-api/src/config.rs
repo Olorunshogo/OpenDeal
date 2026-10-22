@@ -30,6 +30,14 @@ pub struct Config {
     pub bitcoin_network: String,
     pub pilot_max_amount_sats: Option<u64>,
     pub allow_mainnet: bool,
+    pub security_review_ack: bool,
+    pub allowed_pubkeys: Vec<String>,
+    pub bitcoin_rpc_fallback_url: Option<String>,
+    pub rate_limit_per_minute: u32,
+    pub lightning_api_url: Option<String>,
+    pub lightning_api_key: Option<String>,
+    pub fiat_api_url: Option<String>,
+    pub fiat_api_key: Option<String>,
     pub webhook_signing_secret: String,
     pub webhook_max_attempts: u32,
     pub webhook_retry_interval_secs: u64,
@@ -125,6 +133,14 @@ impl Config {
             bitcoin_network,
             pilot_max_amount_sats,
             allow_mainnet: parse_or("OPENDEAL_ALLOW_MAINNET", false)?,
+            security_review_ack: parse_or("OPENDEAL_SECURITY_REVIEW_ACK", false)?,
+            allowed_pubkeys: split_csv("OPENDEAL_ALLOWED_PUBKEYS"),
+            bitcoin_rpc_fallback_url: optional("BITCOIN_RPC_URL_FALLBACK"),
+            rate_limit_per_minute: parse_or("RATE_LIMIT_PER_MINUTE", 120)?,
+            lightning_api_url: optional("LIGHTNING_API_URL"),
+            lightning_api_key: optional("LIGHTNING_API_KEY"),
+            fiat_api_url: optional("FIAT_API_URL"),
+            fiat_api_key: optional("FIAT_API_KEY"),
             webhook_signing_secret: optional("WEBHOOK_SIGNING_SECRET")
                 .unwrap_or_else(|| "dev-webhook-signing-secret-change-me!!".into()),
             webhook_max_attempts: parse_or("WEBHOOK_MAX_ATTEMPTS", 8)?,
@@ -169,12 +185,55 @@ impl Config {
                 "JWT_SECRET must be at least 32 characters".into(),
             ));
         }
-        if (self.bitcoin_network == "bitcoin" || self.bitcoin_network == "mainnet")
-            && !self.allow_mainnet
-        {
-            return Err(ConfigError(
-                "mainnet requires OPENDEAL_ALLOW_MAINNET=1".into(),
-            ));
+        if is_mainnet_name(&self.bitcoin_network) {
+            if !self.allow_mainnet {
+                return Err(ConfigError(
+                    "mainnet requires OPENDEAL_ALLOW_MAINNET=1".into(),
+                ));
+            }
+            if !self.is_production() {
+                return Err(ConfigError(
+                    "mainnet requires APP_ENV=production (dev session mint stays off)".into(),
+                ));
+            }
+            if !self.security_review_ack {
+                return Err(ConfigError(
+                    "mainnet requires OPENDEAL_SECURITY_REVIEW_ACK=1 after an external review of opendeal-bitcoin".into(),
+                ));
+            }
+            if self.mediator_pubkeys.is_empty() {
+                return Err(ConfigError(
+                    "mainnet requires MEDIATOR_PUBKEYS".into(),
+                ));
+            }
+            if self.allowed_pubkeys.is_empty() {
+                return Err(ConfigError(
+                    "mainnet requires OPENDEAL_ALLOWED_PUBKEYS (known counterparties only)".into(),
+                ));
+            }
+            match self.pilot_max_amount_sats {
+                Some(cap) if cap > 0 && cap <= 100_000 => {}
+                Some(cap) => {
+                    return Err(ConfigError(format!(
+                        "mainnet pilot cap must be 1..=100000 sats, got {cap}"
+                    )));
+                }
+                None => {
+                    return Err(ConfigError(
+                        "mainnet refuses an unlimited pilot cap; set PILOT_MAX_AMOUNT_SATS".into(),
+                    ));
+                }
+            }
+            if self.bitcoin_required_confirmations < 3 {
+                return Err(ConfigError(
+                    "mainnet requires BITCOIN_REQUIRED_CONFIRMATIONS>=3".into(),
+                ));
+            }
+            if self.bitcoin_rpc_url.is_none() {
+                return Err(ConfigError(
+                    "mainnet requires BITCOIN_RPC_URL".into(),
+                ));
+            }
         }
         let r2_any = self.r2_bucket.is_some()
             || self.r2_endpoint.is_some()
@@ -203,6 +262,20 @@ impl Config {
                     "BITCOIN_RPC_URL is required for bitcoin_multisig_2of3 in production".into(),
                 ));
             }
+            if self.settlement_model == SettlementModel::LightningProvider
+                && (self.lightning_api_url.is_none() || self.lightning_api_key.is_none())
+            {
+                return Err(ConfigError(
+                    "production Lightning requires LIGHTNING_API_URL and LIGHTNING_API_KEY; in-memory stubs are refused".into(),
+                ));
+            }
+            if self.settlement_model == SettlementModel::FiatProvider
+                && (self.fiat_api_url.is_none() || self.fiat_api_key.is_none())
+            {
+                return Err(ConfigError(
+                    "production fiat requires FIAT_API_URL and FIAT_API_KEY; in-memory stubs are refused".into(),
+                ));
+            }
         }
         return Ok(());
     }
@@ -210,6 +283,25 @@ impl Config {
     pub fn is_production(&self) -> bool {
         return self.app_env == AppEnv::Production;
     }
+}
+
+pub fn is_mainnet_name(network: &str) -> bool {
+    return matches!(
+        network.to_ascii_lowercase().as_str(),
+        "bitcoin" | "mainnet"
+    );
+}
+
+fn split_csv(name: &str) -> Vec<String> {
+    return optional(name)
+        .map(|value| {
+            value
+                .split(',')
+                .map(|p| p.trim().to_string())
+                .filter(|p| !p.is_empty())
+                .collect()
+        })
+        .unwrap_or_default();
 }
 
 fn parse_pilot_max_amount(network: &str) -> Result<Option<u64>, ConfigError> {

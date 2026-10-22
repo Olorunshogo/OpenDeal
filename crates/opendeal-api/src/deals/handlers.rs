@@ -28,7 +28,8 @@ pub fn router() -> Router<AppState> {
         .route("/{id}/settlement/sign", post(attach_psbt_signature))
         .route("/{id}/settlement/finalize", post(finalize_settlement))
         .route("/{id}/events", get(get_events))
-        .route("/{id}/receipt", get(get_receipt));
+        .route("/{id}/receipt", get(get_receipt))
+        .route("/reputation/{pubkey}", get(get_reputation));
 }
 
 async fn create_deal(
@@ -141,6 +142,14 @@ async fn get_events(
 ) -> Result<Json<ApiEnvelope<Vec<opendeal_core::DealEvent>>>, ApiError> {
     let events = list_events(&state.pool, &id).await?;
     return Ok(Json(ApiEnvelope::ok("events", events)));
+}
+
+async fn get_reputation(
+    State(state): State<AppState>,
+    Path(pubkey): Path<String>,
+) -> Result<Json<ApiEnvelope<service::Reputation>>, ApiError> {
+    let reputation = service::reputation(&state.pool, &pubkey).await?;
+    return Ok(Json(ApiEnvelope::ok("reputation", reputation)));
 }
 
 async fn get_receipt(

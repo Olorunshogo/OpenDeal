@@ -13,6 +13,7 @@ import {
   signLoginEventWithSecret,
 } from "@/lib/nostr";
 import { clearSession, loadSession, saveSession, type Session } from "@/lib/session";
+import { Input } from "@/components/ui/Input";
 
 export function SessionBar() {
   const [session, setSession] = useState<Session | null>(() => loadSession());
@@ -189,8 +190,11 @@ export function SessionBar() {
       {error ? <p className="text-sm text-[var(--danger)]">{error}</p> : null}
       {showAdvanced ? (
         <div className="grid gap-2 border-t border-[var(--line)] pt-3 md:grid-cols-2">
-          <input
-            className="rounded border border-[var(--line)] bg-transparent px-2 py-1.5 font-mono text-xs md:col-span-2"
+          <Input
+            label="Signing secret (32-byte hex, stays in browser)"
+            hideLabel
+            mono
+            fieldClassName="md:col-span-2"
             placeholder="Signing secret (32-byte hex, stays in browser)"
             value={signingSecret}
             onChange={(e) => setSigningSecret(e.target.value)}
@@ -212,14 +216,18 @@ export function SessionBar() {
             <option value="buyer">buyer</option>
             <option value="mediator">mediator</option>
           </select>
-          <input
-            className="rounded border border-[var(--line)] bg-transparent px-2 py-1.5 md:col-span-2"
+          <Input
+            label="Paste JWT (fallback)"
+            hideLabel
+            fieldClassName="md:col-span-2"
             placeholder="Paste JWT (fallback)"
             value={token}
             onChange={(e) => setToken(e.target.value)}
           />
-          <input
-            className="rounded border border-[var(--line)] bg-transparent px-2 py-1.5 md:col-span-2"
+          <Input
+            label="Pubkey hex for pasted JWT"
+            hideLabel
+            fieldClassName="md:col-span-2"
             placeholder="Pubkey hex for pasted JWT"
             value={pubkey}
             onChange={(e) => setPubkey(e.target.value)}

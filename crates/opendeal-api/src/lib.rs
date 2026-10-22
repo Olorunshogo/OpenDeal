@@ -7,9 +7,13 @@ use axum::Json;
 use axum::Router;
 use axum::extract::{DefaultBodyLimit, State};
 use axum::http::{HeaderName, HeaderValue, Method, StatusCode, header};
+use axum::middleware::{self, Next};
+use axum::response::Response;
 use axum::routing::get;
 use serde::Serialize;
-use opendeal_bitcoin::{BitcoinMultisigAdapter, HttpBitcoinRpc, MockBitcoinRpc};
+use opendeal_bitcoin::{
+    BitcoinMultisigAdapter, HttpBitcoinRpc, MockBitcoinRpc, RedundantBitcoinRpc,
+};
 use opendeal_core::SettlementModel;
 use sqlx::postgres::PgPoolOptions;
 use tower_http::cors::{AllowOrigin, CorsLayer};
@@ -21,6 +25,8 @@ use tower_http::trace::TraceLayer;
 use utoipa::OpenApi;
 use utoipa_swagger_ui::SwaggerUi;
 
+use crate::error::ApiError;
+
 mod auth;
 pub mod config;
 mod deals;
@@ -30,6 +36,7 @@ mod evidence;
 mod idempotency;
 mod mail;
 mod openapi;
+mod ratelimit;
 mod response;
 mod settlement;
 mod shutdown;
@@ -67,8 +74,10 @@ async fn report_readiness(State(state): State<AppState>) -> (StatusCode, &'stati
 struct PublicMeta {
     network: String,
     settlement_model: String,
+    custody: String,
     pilot_max_amount_sats: Option<u64>,
     required_confirmations: u32,
+    rate_limit_per_minute: u32,
 }
 
 async fn public_meta(State(state): State<AppState>) -> Json<response::ApiEnvelope<PublicMeta>> {
@@ -77,10 +86,44 @@ async fn public_meta(State(state): State<AppState>) -> Json<response::ApiEnvelop
         PublicMeta {
             network: state.config.bitcoin_network.clone(),
             settlement_model: state.config.settlement_model.as_str().to_string(),
+            custody: custody_label(state.config.settlement_model).to_string(),
             pilot_max_amount_sats: state.config.pilot_max_amount_sats,
             required_confirmations: state.config.bitcoin_required_confirmations,
+            rate_limit_per_minute: state.config.rate_limit_per_minute,
         },
     ));
+}
+
+fn custody_label(model: SettlementModel) -> &'static str {
+    return match model {
+        SettlementModel::BitcoinMultisig2of3 => "multisig_2of3_no_server_keys",
+        SettlementModel::LightningProvider => "provider_custody",
+        SettlementModel::FiatProvider => "provider_custody",
+        SettlementModel::Simulated => "simulated",
+    };
+}
+
+async fn rate_limit(
+    State(state): State<AppState>,
+    request: axum::extract::Request,
+    next: Next,
+) -> Result<Response, ApiError> {
+    let key = request
+        .headers()
+        .get("x-forwarded-for")
+        .and_then(|value| value.to_str().ok())
+        .unwrap_or("local")
+        .split(',')
+        .next()
+        .unwrap_or("local")
+        .trim()
+        .to_string();
+    if !state.rate_limiter.allow(&key) {
+        return Err(ApiError::too_many_requests(
+            "rate limit exceeded; retry shortly",
+        ));
+    }
+    return Ok(next.run(request).await);
 }
 
 #[derive(Debug)]
@@ -117,7 +160,7 @@ pub async fn build_state(config: Config) -> Result<AppState, StartupError> {
 
     let settlement: Arc<dyn settlement::SettlementAdapter> = match config.settlement_model {
         SettlementModel::BitcoinMultisig2of3 => {
-            let rpc: Arc<dyn opendeal_bitcoin::BitcoinRpc> = match &config.bitcoin_rpc_url {
+            let primary: Arc<dyn opendeal_bitcoin::BitcoinRpc> = match &config.bitcoin_rpc_url {
                 Some(url) => Arc::new(HttpBitcoinRpc::new(url.clone())),
                 None => {
                     tracing::warn!(
@@ -126,13 +169,40 @@ pub async fn build_state(config: Config) -> Result<AppState, StartupError> {
                     Arc::new(MockBitcoinRpc::new())
                 }
             };
+            let rpc: Arc<dyn opendeal_bitcoin::BitcoinRpc> =
+                if let Some(fallback) = &config.bitcoin_rpc_fallback_url {
+                    Arc::new(RedundantBitcoinRpc::new(
+                        primary,
+                        Arc::new(HttpBitcoinRpc::new(fallback.clone())),
+                    ))
+                } else {
+                    primary
+                };
             let adapter = BitcoinMultisigAdapter::new(rpc, config.bitcoin_required_confirmations);
             Arc::new(settlement::MultisigSettlementAdapter::new(adapter))
         }
         SettlementModel::LightningProvider => {
-            Arc::new(settlement::LightningSettlementAdapter::new())
+            match (&config.lightning_api_url, &config.lightning_api_key) {
+                (Some(url), Some(key)) => Arc::new(settlement::LightningSettlementAdapter::with_http(
+                    settlement::HttpInvoiceClient::new(url, key, "lightning_provider"),
+                )),
+                _ => {
+                    tracing::warn!("LIGHTNING_API_URL unset; using in-memory Lightning stub");
+                    Arc::new(settlement::LightningSettlementAdapter::new())
+                }
+            }
         }
-        SettlementModel::FiatProvider => Arc::new(settlement::FiatSettlementAdapter::new()),
+        SettlementModel::FiatProvider => {
+            match (&config.fiat_api_url, &config.fiat_api_key) {
+                (Some(url), Some(key)) => Arc::new(settlement::FiatSettlementAdapter::with_http(
+                    settlement::HttpInvoiceClient::new(url, key, "fiat_provider"),
+                )),
+                _ => {
+                    tracing::warn!("FIAT_API_URL unset; using in-memory fiat stub");
+                    Arc::new(settlement::FiatSettlementAdapter::new())
+                }
+            }
+        }
         SettlementModel::Simulated => Arc::new(settlement::SimulatedSettlementAdapter),
     };
 
@@ -155,7 +225,8 @@ pub fn build_app(state: AppState) -> Router {
         .nest("/deals", deals::router())
         .merge(evidence::router())
         .merge(disputes::router())
-        .merge(webhooks::router());
+        .merge(webhooks::router())
+        .layer(middleware::from_fn_with_state(state.clone(), rate_limit));
 
     return Router::new()
         .route("/health", get(report_liveness))

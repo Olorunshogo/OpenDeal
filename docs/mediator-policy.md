@@ -26,7 +26,20 @@ They cannot spend escrow alone. A mediator decision updates protocol state; Bitc
 | Evidence complete from both sides | Decision within **5 business days** |
 | Funded deal, party unresponsive after soft timeout | Start recovery outreach within **3 business days** |
 
-These are operational targets for the pilot, not contractual SLAs. Adjust in writing if a marketplace integrator needs harder numbers (Phase 4).
+These are operational targets for the pilot, not contractual SLAs.
+
+## Formal dispute timing (Phase 4)
+
+Written targets for operators who depend on this desk. Still not a statute or a damages clause.
+
+| Clock | Target |
+| --- | --- |
+| Acknowledge a new dispute | 2 business days |
+| Decide once both sides have uploaded evidence | 5 business days |
+| Start recovery outreach on a funded, unresponsive deal | 3 business days |
+| Escalation if a target is missed | Pilot operator lead the next business day |
+
+Missed targets are recorded on the dispute notes. They do not move bitcoin by themselves. Settlement still needs a reviewed 2-of-3 PSBT, or a provider release/refund when the rail is custodial.
 
 ## Evidence expectations
 

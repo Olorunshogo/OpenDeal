@@ -22,6 +22,19 @@ pub async fn create_deal(
     if norm_pubkey(&req.buyer_pubkey) == norm_pubkey(seller_pubkey) {
         return Err(ApiError::bad_request("buyer and seller must differ"));
     }
+    assert_allowlisted(state, "seller", seller_pubkey)?;
+    assert_allowlisted(state, "buyer", &req.buyer_pubkey)?;
+    assert_allowlisted(state, "mediator", &req.mediator_pubkey)?;
+    if !state.mediator_pubkeys.is_empty()
+        && !state
+            .mediator_pubkeys
+            .iter()
+            .any(|pk| norm_pubkey(pk) == norm_pubkey(&req.mediator_pubkey))
+    {
+        return Err(ApiError::bad_request(
+            "mediator_pubkey must be listed in MEDIATOR_PUBKEYS",
+        ));
+    }
     let model = state.settlement.settlement_model();
     if model == SettlementModel::BitcoinMultisig2of3 {
         FeeDustPolicy::default()
@@ -130,6 +143,24 @@ fn norm_pubkey(pubkey: &str) -> String {
         return lower[2..].to_string();
     }
     return lower;
+}
+
+fn assert_allowlisted(state: &AppState, role: &str, pubkey: &str) -> Result<(), ApiError> {
+    if state.config.allowed_pubkeys.is_empty() {
+        return Ok(());
+    }
+    let actor = norm_pubkey(pubkey);
+    let allowed = state
+        .config
+        .allowed_pubkeys
+        .iter()
+        .any(|pk| norm_pubkey(pk) == actor);
+    if !allowed {
+        return Err(ApiError::bad_request(format!(
+            "{role} is not on OPENDEAL_ALLOWED_PUBKEYS"
+        )));
+    }
+    return Ok(());
 }
 
 fn assert_party(deal: &Deal, pubkey: &str) -> Result<(), ApiError> {
@@ -593,4 +624,49 @@ pub async fn export_receipt(state: &AppState, id: &str) -> Result<DealReceipt, A
     };
     receipt.verify().map_err(ApiError::from)?;
     return Ok(receipt);
+}
+
+#[derive(Debug, serde::Serialize)]
+pub struct Reputation {
+    pub pubkey: String,
+    pub deals_as_seller: i64,
+    pub deals_as_buyer: i64,
+    pub settled: i64,
+    pub refunded: i64,
+    pub disputed: i64,
+}
+
+pub async fn reputation(pool: &PgPool, pubkey: &str) -> Result<Reputation, ApiError> {
+    let key = norm_pubkey(pubkey);
+    let row: (i64, i64, i64, i64, i64) = sqlx::query_as(
+        r#"
+        SELECT
+          COUNT(*) FILTER (WHERE RIGHT(LOWER(seller_pubkey), 64) = $1),
+          COUNT(*) FILTER (WHERE RIGHT(LOWER(buyer_pubkey), 64) = $1),
+          COUNT(*) FILTER (
+            WHERE status = 'settled'
+              AND (RIGHT(LOWER(seller_pubkey), 64) = $1 OR RIGHT(LOWER(buyer_pubkey), 64) = $1)
+          ),
+          COUNT(*) FILTER (
+            WHERE status = 'refunded'
+              AND (RIGHT(LOWER(seller_pubkey), 64) = $1 OR RIGHT(LOWER(buyer_pubkey), 64) = $1)
+          ),
+          COUNT(*) FILTER (
+            WHERE status = 'disputed'
+              AND (RIGHT(LOWER(seller_pubkey), 64) = $1 OR RIGHT(LOWER(buyer_pubkey), 64) = $1)
+          )
+        FROM deals
+        "#,
+    )
+    .bind(&key)
+    .fetch_one(pool)
+    .await?;
+    return Ok(Reputation {
+        pubkey: key,
+        deals_as_seller: row.0,
+        deals_as_buyer: row.1,
+        settled: row.2,
+        refunded: row.3,
+        disputed: row.4,
+    });
 }

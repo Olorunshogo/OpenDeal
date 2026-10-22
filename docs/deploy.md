@@ -62,8 +62,15 @@ Frontend: set `NEXT_PUBLIC_BITCOIN_NETWORK=testnet` to match. Full checklist: [`
 ## Production gates
 
 - `APP_ENV=production` refuses `SETTLEMENT_MODEL=simulated`
-- Mainnet requires `OPENDEAL_ALLOW_MAINNET=1`
+- Production Lightning/fiat refuses in-memory stubs (`LIGHTNING_API_URL` + key, or `FIAT_API_URL` + key)
+- Mainnet requires the full gate set in [`mainnet-pilot.md`](./mainnet-pilot.md): production env, `OPENDEAL_ALLOW_MAINNET=1`, `OPENDEAL_SECURITY_REVIEW_ACK=1`, mediator and party allowlists, cap ≤ 100_000 sats, ≥ 3 confirmations, RPC URL
+- Optional second node: `BITCOIN_RPC_URL_FALLBACK` (used when the primary RPC errors)
+- `RATE_LIMIT_PER_MINUTE` (default 120, `0` disables) on `/api/v1`
 - Dev session mint (`POST /api/v1/auth/dev/session`) is forbidden in production
+
+## Multi-region
+
+Run one primary Postgres. API processes are stateless aside from the in-process rate limiter and webhook retry loop, so a second region needs a shared database and should not assume the limiter or retry loop is global. Do not active-active write to two databases. Put TLS and `X-Forwarded-For` on the reverse proxy in front of every region you do run.
 
 ## Rollback
 

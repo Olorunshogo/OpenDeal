@@ -1,4 +1,4 @@
-use axum::extract::{Path, State};
+use axum::extract::{Path, Query, State};
 use axum::routing::{get, post};
 use axum::{Json, Router};
 use chrono::{DateTime, Utc};
@@ -32,6 +32,24 @@ pub struct OpenDisputeRequest {
     pub reason: String,
 }
 
+/* Dispute plus the deal context a mediator desk actually needs to decide — title and amount, not just an id. */
+#[derive(Debug, Serialize, sqlx::FromRow)]
+pub struct OpenDisputeSummary {
+    pub id: Uuid,
+    pub agreement_id: String,
+    pub title: String,
+    pub amount_sats: i64,
+    pub opened_by: String,
+    pub reason: String,
+    pub status: String,
+    pub created_at: DateTime<Utc>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct ListDisputesQuery {
+    pub status: Option<String>,
+}
+
 #[derive(Debug, Deserialize)]
 pub struct ResolveDisputeRequest {
     /// `release` (pay seller / settle) or `refund` (refund buyer).
@@ -42,6 +60,7 @@ pub struct ResolveDisputeRequest {
 pub fn router() -> Router<AppState> {
     return Router::new()
         .route("/deals/{id}/disputes", post(open_dispute))
+        .route("/disputes", get(list_disputes))
         .route("/disputes/{id}", get(get_dispute))
         .route("/disputes/{id}/resolve", post(resolve_dispute));
 }
@@ -90,6 +109,36 @@ async fn open_dispute(
     .await?;
 
     return Ok(Json(ApiEnvelope::ok("dispute opened", row)));
+}
+
+/* Any configured mediator can list and act on any dispute — the allowlist is global, not per-deal (see resolve_dispute). Default to "open" since a resolved dispute has nothing left for a mediator to do. */
+async fn list_disputes(
+    State(state): State<AppState>,
+    user: AuthenticatedUser,
+    Query(query): Query<ListDisputesQuery>,
+) -> Result<Json<ApiEnvelope<Vec<OpenDisputeSummary>>>, ApiError> {
+    if !state.mediator_pubkeys.contains(&user.pubkey) {
+        return Err(ApiError::forbidden(
+            "only configured mediators may list disputes",
+        ));
+    }
+    let status = query.status.unwrap_or_else(|| "open".to_string());
+
+    let rows = sqlx::query_as::<_, OpenDisputeSummary>(
+        r#"
+        SELECT d.id, d.agreement_id, deals.title, deals.amount_sats,
+               d.opened_by, d.reason, d.status, d.created_at
+        FROM disputes d
+        JOIN deals ON deals.id = d.agreement_id
+        WHERE d.status = $1
+        ORDER BY d.created_at DESC
+        "#,
+    )
+    .bind(&status)
+    .fetch_all(&state.pool)
+    .await?;
+
+    return Ok(Json(ApiEnvelope::ok("disputes", rows)));
 }
 
 async fn get_dispute(

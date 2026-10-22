@@ -138,8 +138,23 @@ export interface AuthSession {
 export interface PublicMeta {
   network: string;
   settlement_model: string;
+  custody: string;
   pilot_max_amount_sats: number | null;
   required_confirmations: number;
+  rate_limit_per_minute: number;
+}
+
+export interface Reputation {
+  pubkey: string;
+  deals_as_seller: number;
+  deals_as_buyer: number;
+  settled: number;
+  refunded: number;
+  disputed: number;
+}
+
+export function getReputation(pubkey: string): Promise<Reputation> {
+  return apiFetch<Reputation>(`/api/v1/deals/reputation/${encodeURIComponent(pubkey)}`);
 }
 
 export function getMeta(): Promise<PublicMeta> {
@@ -235,6 +250,52 @@ export function openDispute(token: string, id: string, reason: string): Promise<
     token,
     body: JSON.stringify({ reason }),
   });
+}
+
+export interface Evidence {
+  id: string;
+  agreement_id: string;
+  kind: string;
+  content: string;
+  submitted_by: string;
+  created_at: string;
+  object_key: string | null;
+  content_sha256: string | null;
+  content_type: string | null;
+}
+
+export function listEvidence(id: string): Promise<Evidence[]> {
+  return apiFetch<Evidence[]>(`/api/v1/deals/${id}/evidence`);
+}
+
+export function submitEvidence(
+  token: string,
+  id: string,
+  input: { kind: string; content: string },
+): Promise<Evidence> {
+  return apiFetch<Evidence>(`/api/v1/deals/${id}/evidence`, {
+    method: "POST",
+    token,
+    body: JSON.stringify(input),
+  });
+}
+
+export interface OpenDisputeSummary {
+  id: string;
+  agreement_id: string;
+  title: string;
+  amount_sats: number;
+  opened_by: string;
+  reason: string;
+  status: string;
+  created_at: string;
+}
+
+export function listDisputes(token: string, status = "open"): Promise<OpenDisputeSummary[]> {
+  return apiFetch<OpenDisputeSummary[]>(
+    `/api/v1/disputes?status=${encodeURIComponent(status)}`,
+    { token },
+  );
 }
 
 export function resolveDispute(

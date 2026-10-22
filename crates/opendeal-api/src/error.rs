@@ -22,6 +22,7 @@ pub enum ApiError {
         message: String,
         code: Option<&'static str>,
     },
+    TooManyRequests(String),
     Internal(String),
 }
 
@@ -64,6 +65,10 @@ impl ApiError {
     pub fn not_found(message: impl Into<String>) -> Self {
         return ApiError::NotFound(message.into());
     }
+
+    pub fn too_many_requests(message: impl Into<String>) -> Self {
+        return ApiError::TooManyRequests(message.into());
+    }
 }
 
 #[derive(Serialize)]
@@ -82,6 +87,9 @@ impl IntoResponse for ApiError {
             ApiError::Forbidden { message, code } => (StatusCode::FORBIDDEN, message, code),
             ApiError::NotFound(message) => (StatusCode::NOT_FOUND, message, None),
             ApiError::Conflict { message, code } => (StatusCode::CONFLICT, message, code),
+            ApiError::TooManyRequests(message) => {
+                (StatusCode::TOO_MANY_REQUESTS, message, Some("rate_limited"))
+            }
             ApiError::Internal(message) => {
                 tracing::error!(error = %message, "internal error");
                 (

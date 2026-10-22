@@ -429,3 +429,10 @@ FodyWeavers.xsd
 
 # Local evidence object store (dev fallback)
 data/evidence/
+
+# Personal task notes. Kept on disk, not in git.
+docs/Screens/
+
+# Testnet env template — a global gitignore on this machine blocks *.env.* by
+# default; this repo-local negation keeps the committed template visible.
+!crates/opendeal-api/.env.testnet.example

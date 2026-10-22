@@ -6,6 +6,7 @@ use sqlx::PgPool;
 use crate::auth::NonceStore;
 use crate::auth::jwt::JwtKeys;
 use crate::config::Config;
+use crate::ratelimit::RateLimiter;
 use crate::settlement::SettlementAdapter;
 use crate::storage::ObjectStorage;
 
@@ -18,6 +19,7 @@ pub struct AppState {
     pub nonces: Arc<NonceStore>,
     pub mediator_pubkeys: Arc<HashSet<String>>,
     pub storage: ObjectStorage,
+    pub rate_limiter: Arc<RateLimiter>,
 }
 
 impl AppState {
@@ -29,6 +31,7 @@ impl AppState {
     ) -> Self {
         let jwt = JwtKeys::new(&config.jwt_secret, config.access_token_ttl);
         let mediator_pubkeys = Arc::new(config.mediator_pubkeys.iter().cloned().collect());
+        let rate_limiter = Arc::new(RateLimiter::new(config.rate_limit_per_minute));
         return AppState {
             pool,
             jwt,
@@ -36,6 +39,7 @@ impl AppState {
             nonces: Arc::new(NonceStore::default()),
             settlement,
             storage,
+            rate_limiter,
             config: Arc::new(config),
         };
     }

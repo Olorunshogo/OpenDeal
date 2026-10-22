@@ -75,12 +75,12 @@ cd frontend && pnpm dev
 | Item | Status |
 | --- | --- |
 | Testnet pilot | Done (ops-ready: [`testnet-pilot.md`](./testnet-pilot.md), `PILOT_MAX_AMOUNT_SATS`, `/api/v1/meta`, UI network banner) |
-| Constrained mainnet pilot | Not done |
+| Constrained mainnet pilot | Done (ops gates only: [`mainnet-pilot.md`](./mainnet-pilot.md); no live funds in this change) |
 | Fee / dust policy hardening | Done (`FeeDustPolicy` in `opendeal-bitcoin`; enforced on create/prepare/propose) |
 | PSBT review UX (“what am I signing?”) | Done (deal page: decode summary, review checkbox, local/paste sign, decline, finalize) |
 | Timeout / recovery design (timelock or documented manual recovery) | Done (manual recovery default; timelock deferred; [`recovery.md`](./recovery.md)) |
 | Mediator policy docs + support runbooks | Done ([`mediator-policy.md`](./mediator-policy.md)) |
-| External security review of `opendeal-bitcoin` | Prep done ([`security-review.md`](./security-review.md)); external pass still required before mainnet |
+| External security review of `opendeal-bitcoin` | Prep done ([`security-review.md`](./security-review.md)). Mainnet boot requires `OPENDEAL_SECURITY_REVIEW_ACK=1` as an operator attestation. This repo does not contain the external report. |
 
 ---
 
@@ -90,11 +90,11 @@ cd frontend && pnpm dev
 
 | Item | Status |
 | --- | --- |
-| Settlement trait + `LightningProvider` / `FiatProvider` stubs | Done (stubs only) |
-| Real Lightning adapter (NWC / Bitnob / MavaPay or equivalent) | Not done |
-| Real NGN fiat adapter (optional) | Not done |
-| Embeddable checkout + toy marketplace integrator | Not done |
-| Reputation from verified deal events | Not done |
+| Settlement trait + `LightningProvider` / `FiatProvider` stubs | Done (dev stubs; production refuses them) |
+| Real Lightning adapter (NWC / Bitnob / MavaPay or equivalent) | Done as an operator HTTP invoice client ([`rails.md`](./rails.md)); not a bundled Bitnob SDK |
+| Real NGN fiat adapter (optional) | Done as the same HTTP invoice contract with `FIAT_API_*` |
+| Embeddable checkout + toy marketplace integrator | Done (`/deals/{id}/checkout`, `/market`) |
+| Reputation from verified deal events | Done (`GET /api/v1/deals/reputation/{pubkey}`) |
 
 ---
 
@@ -104,11 +104,11 @@ cd frontend && pnpm dev
 
 | Item | Status |
 | --- | --- |
-| Provider redundancy | Not done |
-| Rate limits and abuse controls | Not done |
-| Compliance assessment if any custodial rail is offered | Not done |
-| Multi-region ops | Not done |
-| Formal dispute SLA | Not done |
+| Provider redundancy | Done (`BITCOIN_RPC_URL_FALLBACK` via `RedundantBitcoinRpc`) |
+| Rate limits and abuse controls | Done (in-process `RATE_LIMIT_PER_MINUTE` on `/api/v1`) |
+| Compliance assessment if any custodial rail is offered | Done as a checklist ([`compliance.md`](./compliance.md)); not a legal opinion |
+| Multi-region ops | Done as a single-primary runbook note in [`deploy.md`](./deploy.md) |
+| Formal dispute SLA | Done (written targets in [`mediator-policy.md`](./mediator-policy.md); not a contract) |
 
 ---
 
