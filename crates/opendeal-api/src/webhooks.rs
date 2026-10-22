@@ -58,6 +58,8 @@ pub async fn register_endpoint(
     owner_pubkey: &str,
     url: String,
 ) -> Result<WebhookEndpoint, ApiError> {
+    let parsed=reqwest::Url::parse(&url).map_err(|_|ApiError::bad_request("invalid webhook URL"))?;
+    if parsed.scheme()!="https" || !parsed.username().is_empty() || parsed.password().is_some() { return Err(ApiError::bad_request("webhook URL must use HTTPS without credentials")); }
     let id = Uuid::new_v4();
     let secret = format!("whsec_{}", Uuid::new_v4());
     let row = sqlx::query_as::<_, WebhookEndpoint>(
@@ -76,59 +78,19 @@ pub async fn register_endpoint(
     return Ok(row);
 }
 
-pub async fn enqueue_deal_event(
-    state: &AppState,
+pub async fn enqueue_event_conn(
+    connection: &mut sqlx::PgConnection,
     event_type: &str,
     deal: &Deal,
 ) -> Result<(), ApiError> {
-    let endpoints: Vec<WebhookEndpoint> = sqlx::query_as(
-        r#"
-        SELECT id, owner_pubkey, url, secret, created_at FROM webhook_endpoints
-        WHERE owner_pubkey IN ($1, $2, $3)
-        "#,
-    )
-    .bind(&deal.seller_pubkey)
-    .bind(&deal.buyer_pubkey)
-    .bind(&deal.mediator_pubkey)
-    .fetch_all(&state.pool)
-    .await?;
-
-    let payload = serde_json::json!({
-        "type": event_type,
-        "deal": deal,
-    });
-
-    for endpoint in endpoints {
-        let delivery_id = Uuid::new_v4();
-        sqlx::query(
-            r#"
-            INSERT INTO webhook_deliveries (id, endpoint_id, event_type, payload, status, attempts, next_attempt_at)
-            VALUES ($1, $2, $3, $4, 'pending', 0, now())
-            "#,
-        )
-        .bind(delivery_id)
-        .bind(endpoint.id)
-        .bind(event_type)
-        .bind(&payload)
-        .execute(&state.pool)
-        .await?;
-
-        deliver_once(
-            &state.pool,
-            delivery_id,
-            &endpoint.url,
-            &endpoint.secret,
-            event_type,
-            &payload,
-            0,
-            state.config.webhook_max_attempts,
-        )
-        .await?;
-    }
-    return Ok(());
+    let payload = serde_json::json!({"type":event_type,"deal_id":deal.id,"status":deal.status});
+    sqlx::query("INSERT INTO webhook_deliveries (id,endpoint_id,event_type,payload,status,attempts) SELECT gen_random_uuid(),id,$1,$2,'pending',0 FROM webhook_endpoints WHERE owner_pubkey IN ($3,$4,$5)")
+        .bind(event_type).bind(payload).bind(&deal.seller_pubkey).bind(&deal.buyer_pubkey).bind(&deal.mediator_pubkey).execute(connection).await?;
+    Ok(())
 }
 
 pub fn spawn_retry_worker(state: AppState) {
+    if std::env::var("WEBHOOK_DELIVERY_ENABLED").as_deref()!=Ok("true") { return; }
     tokio::spawn(async move {
         let interval = Duration::from_secs(state.config.webhook_retry_interval_secs.max(5));
         loop {
@@ -188,7 +150,12 @@ async fn deliver_once(
     let attempts = prior_attempts + 1;
     let body = payload.to_string();
     let signature = sign_payload(secret, &body);
-    let client = reqwest::Client::new();
+    let parsed=reqwest::Url::parse(url).map_err(|_| ApiError::bad_request("invalid webhook URL"))?;
+    let allowed=std::env::var("WEBHOOK_ALLOWED_HOSTS").unwrap_or_default();
+    if parsed.scheme()!="https" || !parsed.username().is_empty() || parsed.password().is_some() || !allowed.split(',').any(|host| !host.trim().is_empty() && Some(host.trim())==parsed.host_str()) {
+        return mark_failure(pool,delivery_id,attempts,max_attempts,"webhook host is not explicitly allowed").await;
+    }
+    let client = reqwest::Client::builder().redirect(reqwest::redirect::Policy::none()).timeout(Duration::from_secs(10)).build().map_err(|_|ApiError::Internal("webhook client initialization failed".into()))?;
     let result = client
         .post(url)
         .header("Content-Type", "application/json")
@@ -217,7 +184,7 @@ async fn deliver_once(
             mark_failure(pool, delivery_id, attempts, max_attempts, &err).await?;
         }
         Err(err) => {
-            mark_failure(pool, delivery_id, attempts, max_attempts, &err.to_string()).await?;
+            mark_failure(pool, delivery_id, attempts, max_attempts, &"webhook transport failure").await?;
         }
     }
     return Ok(());
