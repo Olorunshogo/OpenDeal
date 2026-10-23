@@ -1,4 +1,4 @@
-.PHONY: help up down logs ps api frontend install-frontend e2e e2e-offline migrate check test
+.PHONY: help up down logs ps api frontend install-frontend build build-api build-frontend e2e e2e-offline migrate check test
 
 ROOT := $(abspath $(dir $(lastword $(MAKEFILE_LIST))))
 
@@ -11,6 +11,9 @@ help:
 	@echo "  make api             Run API (loads migrations when RUN_MIGRATIONS=true)"
 	@echo "  make frontend        Run Next.js dev server"
 	@echo "  make install-frontend  pnpm install in frontend/"
+	@echo "  make build           Build API (release) + frontend"
+	@echo "  make build-api       cargo build --release -p opendeal-api"
+	@echo "  make build-frontend  Next.js production build"
 	@echo "  make migrate         Same as make api (migrations run on API boot)"
 	@echo "  make e2e             Live regtest e2e (API must already be up)"
 	@echo "  make e2e-offline     Offline laptop-sale demo (no bitcoind)"
@@ -40,6 +43,14 @@ frontend:
 
 install-frontend:
 	cd $(ROOT)/frontend && pnpm install
+
+build: build-api build-frontend
+
+build-api:
+	cd $(ROOT) && cargo build --release -p opendeal-api
+
+build-frontend:
+	cd $(ROOT)/frontend && pnpm build
 
 e2e:
 	cd $(ROOT) && ./scripts/live-regtest-e2e.sh

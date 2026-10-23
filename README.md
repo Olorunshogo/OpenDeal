@@ -43,21 +43,22 @@ Both `.env.example` files are committed templates. `cp -n` only writes the real 
 doesn't exist yet, so this is safe to re-run.
 
 ```bash
+cp -n .env.example .env
 cp -n crates/opendeal-api/.env.example crates/opendeal-api/.env
 cp -n frontend/.env.example frontend/.env.local
 
-make up                 # Postgres (:5434) + bitcoind
+make up                 # Postgres (:5435) + bitcoind
 make install-frontend   # once
 make api                # terminal 1 (runs migrations when RUN_MIGRATIONS=true)
 make frontend           # terminal 2
 ```
 
-That's the whole setup: two `cp` lines, `make up`, then the API and frontend each in their own
+That's the whole setup: three `cp` lines, `make up`, then the API and frontend each in their own
 terminal. See `make help` for the full command list. Deploy notes: [`docs/deploy.md`](./docs/deploy.md).
 
 API: `http://localhost:8080` · OpenAPI UI: `/docs` · Frontend: `http://localhost:3000`
 
-Compose Postgres defaults to host port **5434** so it does not clash with a system Postgres on 5432. Override with `POSTGRES_HOST_PORT=5432` if needed, and match `DATABASE_*` in `.env`.
+Compose Postgres defaults to host port **5435** (set by `POSTGRES_HOST_PORT` in the root `.env`) so it does not clash with a system Postgres on 5432 or other local Compose stacks. If you change it, match `DATABASE_*` in `crates/opendeal-api/.env`.
 
 ### Offline protocol smoke (no bitcoind)
 
@@ -69,7 +70,7 @@ cargo run -p regtest-demo -- laptop-sale
 
 ```bash
 docker compose up -d
-# if host :5432 is busy: POSTGRES_HOST_PORT=5434 docker compose up -d
+# Postgres binds host :5435; if that is busy: POSTGRES_HOST_PORT=<free port> docker compose up -d
 # match DATABASE_URL in crates/opendeal-api/.env to that port
 cargo run -p opendeal-api   # other terminal
 ./scripts/live-regtest-e2e.sh

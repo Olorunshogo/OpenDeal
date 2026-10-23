@@ -10,7 +10,7 @@ BITCOIN_RPC_URL="${BITCOIN_RPC_URL:-http://opendeal:opendeal@127.0.0.1:18443}"
 RECEIPT_OUT="${RECEIPT_OUT:-/tmp/opendeal-live-receipt.json}"
 
 echo "== Starting Postgres + bitcoind =="
-# Override host Postgres port if 5432 is taken: POSTGRES_HOST_PORT=5434 ./scripts/live-regtest-e2e.sh
+# Postgres binds host :5435 by default; override if taken: POSTGRES_HOST_PORT=<free port> ./scripts/live-regtest-e2e.sh
 docker compose up -d
 echo "Waiting for healthchecks..."
 for i in $(seq 1 60); do

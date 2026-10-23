@@ -5,7 +5,7 @@ it with the example. For a fresh setup, copy `crates/opendeal-api/.env.example`
 to `.env` only if `.env` does not exist, then replace the placeholders locally.
 
 Configure `DATABASE_URL` and `DATABASE_ADMIN_URL` for the existing `opendeal`
-database at `127.0.0.1:5433`. The admin role must have migration privileges;
+database at `127.0.0.1:5435`. The admin role must have migration privileges;
 the application role needs access to the tables and sequences. Both URLs must
 refer to the same database. Use a random `JWT_SECRET` of at least 32 characters.
 

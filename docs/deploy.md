@@ -31,7 +31,7 @@ Frontend:
 
 ```bash
 docker compose up -d
-# if :5432 is busy: POSTGRES_HOST_PORT=5434 docker compose up -d
+# Postgres binds host :5435; if that is busy: POSTGRES_HOST_PORT=<free port> docker compose up -d
 cp -n crates/opendeal-api/.env.example crates/opendeal-api/.env
 # align DATABASE_* ports with Compose
 cargo run -p opendeal-api
