@@ -10,12 +10,14 @@ import { Input } from "@/components/ui/Input";
 import { Textarea } from "@/components/ui/Textarea";
 import {
   attachPsbtSignature,
+  confirmSettlement,
   finalizeSettlement,
   getAgreement,
   getDeal,
   getEvents,
   getReceipt,
   getReputation,
+  getSettlement,
   listEvidence,
   openDispute,
   prepareFunding,
@@ -27,6 +29,7 @@ import {
   type Deal,
   type DealEvent,
   type DealStatus,
+  type SettlementProgress,
   type SettlementPurpose,
 } from "@/lib/api";
 import { normPubkey, signCanonicalBytes } from "@/lib/crypto";
@@ -49,6 +52,7 @@ export function DealDetailClient() {
   const [reviewed, setReviewed] = useState(false);
   const [declined, setDeclined] = useState(false);
   const [settlementBusy, setSettlementBusy] = useState(false);
+  const [confirmBlockHash, setConfirmBlockHash] = useState("");
   const [evidenceKind, setEvidenceKind] = useState("note");
   const [evidenceContent, setEvidenceContent] = useState("");
   const [evidenceBusy, setEvidenceBusy] = useState(false);
@@ -94,11 +98,41 @@ export function DealDetailClient() {
     queryFn: () => getReputation(dealQuery.data!.buyer_pubkey),
     enabled: Boolean(dealQuery.data?.buyer_pubkey),
   });
+  const settlementQuery = useQuery({
+    queryKey: ["settlement", id, session?.token],
+    queryFn: () => getSettlement(session!.token, id),
+    enabled: Boolean(session?.token) && Boolean(dealQuery.data?.current_psbt),
+    refetchInterval: (query) => {
+      const phase = query.state.data?.phase;
+      return phase === "broadcasting" || phase === "broadcast" || phase === "broadcast_unknown"
+        ? 5000
+        : false;
+    },
+  });
 
   async function refresh() {
     await queryClient.invalidateQueries({ queryKey: ["deal", id] });
     await queryClient.invalidateQueries({ queryKey: ["agreement", id] });
     await queryClient.invalidateQueries({ queryKey: ["events", id] });
+    await queryClient.invalidateQueries({ queryKey: ["settlement", id] });
+  }
+
+  async function onConfirmSettlement() {
+    setError(null);
+    const session = loadSession();
+    if (!session?.token) {
+      setError("Sign in first (footer).");
+      return;
+    }
+    setSettlementBusy(true);
+    try {
+      await confirmSettlement(session.token, id, confirmBlockHash.trim() || undefined);
+      await refresh();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "confirm failed");
+    } finally {
+      setSettlementBusy(false);
+    }
   }
 
   async function onSubmitEvidence() {
@@ -431,6 +465,7 @@ export function DealDetailClient() {
           {deal ? (
             <SettlementPanel
               deal={deal}
+              settlement={settlementQuery.data ?? null}
               canPropose={canPropose}
               isParty={Boolean(isParty)}
               purpose={purpose}
@@ -447,12 +482,15 @@ export function DealDetailClient() {
               setDeclined={setDeclined}
               pastedPsbt={pastedPsbt}
               setPastedPsbt={setPastedPsbt}
+              confirmBlockHash={confirmBlockHash}
+              setConfirmBlockHash={setConfirmBlockHash}
               busy={settlementBusy}
               hasLocalSecret={Boolean(session?.signingSecret)}
               onPropose={onProposeSettlement}
               onSignLocal={onSignWithLocalSecret}
               onAttachPaste={() => onAttachSignedPsbt(pastedPsbt)}
               onFinalize={onFinalizeSettlement}
+              onConfirm={onConfirmSettlement}
             />
           ) : null}
 
@@ -590,6 +628,7 @@ function latestSettlementPurpose(events: DealEvent[] | undefined): string | null
 
 function SettlementPanel({
   deal,
+  settlement,
   canPropose,
   isParty,
   purpose,
@@ -606,14 +645,18 @@ function SettlementPanel({
   setDeclined,
   pastedPsbt,
   setPastedPsbt,
+  confirmBlockHash,
+  setConfirmBlockHash,
   busy,
   hasLocalSecret,
   onPropose,
   onSignLocal,
   onAttachPaste,
   onFinalize,
+  onConfirm,
 }: {
   deal: Deal;
+  settlement: SettlementProgress | null;
   canPropose: boolean;
   isParty: boolean;
   purpose: SettlementPurpose;
@@ -633,16 +676,24 @@ function SettlementPanel({
   setDeclined: (v: boolean) => void;
   pastedPsbt: string;
   setPastedPsbt: (v: string) => void;
+  confirmBlockHash: string;
+  setConfirmBlockHash: (v: string) => void;
   busy: boolean;
   hasLocalSecret: boolean;
   onPropose: () => void;
   onSignLocal: () => void;
   onAttachPaste: () => void;
   onFinalize: () => void;
+  onConfirm: () => void;
 }) {
   const hasPsbt = Boolean(deal.current_psbt);
   const summary = psbtReview?.summary;
   const canAct = isParty && hasPsbt && !deal.settlement_txid && !declined;
+  const requiredSignatures = settlement?.required_signatures ?? 2;
+  const validSignatures = settlement?.valid_signatures ?? summary?.partial_sigs_total ?? 0;
+  const phase = settlement?.phase ?? deal.settlement_phase;
+  const canCheckConfirmation =
+    isParty && Boolean(deal.settlement_txid) && phase !== "confirmed";
 
   return (
     <div className="mt-6 rounded border border-[var(--line)] bg-[var(--bg-lift)]/40 p-4">
@@ -741,7 +792,11 @@ function SettlementPanel({
             Fee:{" "}
             <span className="text-[var(--ok)]">{summary.fee_sats.toLocaleString()} sats</span>
             {" · "}
-            Partial sigs: {summary.partial_sigs_total}/2 needed
+            Partial sigs: {validSignatures}/{requiredSignatures} needed
+          </p>
+          <p>
+            Phase: <span className="text-[var(--accent-soft)]">{phase}</span>
+            {settlement ? ` · ${settlement.confirmations} confirmation(s)` : null}
           </p>
           {deal.funding_amount_sats != null && summary.outputs[0] ? (
             <p className="text-xs text-[var(--ink-muted)]">
@@ -791,12 +846,15 @@ function SettlementPanel({
                 <button
                   type="button"
                   disabled={
-                    !isParty || busy || Boolean(deal.settlement_txid) || summary.partial_sigs_total < 2
+                    !isParty ||
+                    busy ||
+                    Boolean(deal.settlement_txid) ||
+                    validSignatures < requiredSignatures
                   }
                   onClick={onFinalize}
                   title={
-                    summary.partial_sigs_total < 2
-                      ? "Needs 2 of 3 signatures before it can be finalized"
+                    validSignatures < requiredSignatures
+                      ? `Needs ${requiredSignatures} of 3 signatures before it can be finalized`
                       : undefined
                   }
                   className="rounded border border-[var(--line)] px-4 py-2 text-sm disabled:opacity-40"
@@ -843,6 +901,38 @@ function SettlementPanel({
 
       {hasPsbt && psbtReview?.error ? (
         <p className="mt-3 text-sm text-[var(--danger)]">PSBT decode failed: {psbtReview.error}</p>
+      ) : null}
+
+      {deal.settlement_txid ? (
+        <div className="mt-4 space-y-2 border-t border-[var(--line)] pt-4 text-sm">
+          <p className="break-all font-mono text-[10px] text-[var(--ink-muted)]">
+            settlement txid · {deal.settlement_txid}
+          </p>
+          <p>
+            Status: <span className="text-[var(--accent-soft)]">{phase}</span>
+            {" · "}
+            {(settlement?.confirmations ?? deal.settlement_confirmations)} confirmation(s)
+          </p>
+          {canCheckConfirmation ? (
+            <>
+              <Input
+                label="Block hash (only needed without Core txindex)"
+                mono
+                value={confirmBlockHash}
+                onChange={(e) => setConfirmBlockHash(e.target.value)}
+                placeholder="optional"
+              />
+              <button
+                type="button"
+                disabled={busy}
+                onClick={onConfirm}
+                className="rounded border border-[var(--line)] px-4 py-2 text-sm disabled:opacity-40"
+              >
+                {busy ? "Checking…" : "Check confirmation"}
+              </button>
+            </>
+          ) : null}
+        </div>
       ) : null}
     </div>
   );

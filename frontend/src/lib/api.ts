@@ -36,6 +36,17 @@ export type DealStatus =
   | "refunded"
   | "expired";
 
+export type SettlementPurpose = "payout_seller" | "refund_buyer";
+
+export type SettlementPhase =
+  | "none"
+  | "proposed"
+  | "broadcasting"
+  | "broadcast"
+  | "broadcast_unknown"
+  | "broadcast_rejected"
+  | "confirmed";
+
 export interface Deal {
   id: string;
   status: DealStatus | string;
@@ -53,6 +64,13 @@ export interface Deal {
   funding_amount_sats: number | null;
   settlement_txid: string | null;
   current_psbt: string | null;
+  settlement_purpose: SettlementPurpose | null;
+  settlement_proposal: string | null;
+  settlement_phase: SettlementPhase;
+  settlement_confirmations: number;
+  settlement_block_hash: string | null;
+  settlement_from_status: DealStatus | string | null;
+  broadcast_attempted_at: string | null;
   delivery_deadline: string;
   acceptance_window_hours: number;
   created_at: string;
@@ -311,8 +329,6 @@ export function resolveDispute(
   });
 }
 
-export type SettlementPurpose = "payout_seller" | "refund_buyer";
-
 export function proposeSettlement(
   token: string,
   id: string,
@@ -341,5 +357,48 @@ export function finalizeSettlement(token: string, id: string): Promise<Deal> {
   return apiFetch<Deal>(`/api/v1/deals/${id}/settlement/finalize`, {
     method: "POST",
     token,
+  });
+}
+
+export interface SettlementProgress {
+  current_psbt: string | null;
+  valid_signatures: number;
+  required_signatures: number;
+  phase: SettlementPhase;
+  txid: string | null;
+  confirmations: number;
+  block_hash: string | null;
+  purpose: SettlementPurpose | null;
+}
+
+export function getSettlement(token: string, id: string): Promise<SettlementProgress> {
+  return apiFetch<SettlementProgress>(`/api/v1/deals/${id}/settlement`, { token });
+}
+
+export interface WebhookEndpoint {
+  id: string;
+  owner_pubkey: string;
+  url: string;
+  secret: string;
+  created_at: string;
+}
+
+export function registerWebhook(token: string, url: string): Promise<WebhookEndpoint> {
+  return apiFetch<WebhookEndpoint>("/api/v1/webhooks", {
+    method: "POST",
+    token,
+    body: JSON.stringify({ url }),
+  });
+}
+
+export function confirmSettlement(
+  token: string,
+  id: string,
+  blockHash?: string,
+): Promise<Deal> {
+  return apiFetch<Deal>(`/api/v1/deals/${id}/settlement/confirm`, {
+    method: "POST",
+    token,
+    body: JSON.stringify({ block_hash: blockHash ?? null }),
   });
 }

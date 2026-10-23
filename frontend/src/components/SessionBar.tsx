@@ -4,7 +4,9 @@ import { useState } from "react";
 import {
   devSession,
   nostrLogin,
+  registerWebhook,
   requestNostrChallenge,
+  type WebhookEndpoint,
 } from "@/lib/api";
 import { generateDemoIdentity, pubkeyFromSecret } from "@/lib/crypto";
 import {
@@ -24,6 +26,11 @@ export function SessionBar() {
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [showWebhooks, setShowWebhooks] = useState(false);
+  const [webhookUrl, setWebhookUrl] = useState("");
+  const [webhookBusy, setWebhookBusy] = useState(false);
+  const [webhookError, setWebhookError] = useState<string | null>(null);
+  const [webhookResult, setWebhookResult] = useState<WebhookEndpoint | null>(null);
 
   function persist(next: Session) {
     saveSession(next);
@@ -127,6 +134,25 @@ export function SessionBar() {
     setSigningSecret("");
   }
 
+  async function onRegisterWebhook() {
+    setWebhookError(null);
+    const current = loadSession();
+    if (!current?.token) {
+      setWebhookError("Sign in first.");
+      return;
+    }
+    setWebhookBusy(true);
+    try {
+      const endpoint = await registerWebhook(current.token, webhookUrl.trim());
+      setWebhookResult(endpoint);
+      setWebhookUrl("");
+    } catch (err) {
+      setWebhookError(err instanceof Error ? err.message : "webhook registration failed");
+    } finally {
+      setWebhookBusy(false);
+    }
+  }
+
   if (session) {
     return (
       <div className="flex flex-col gap-2 text-sm text-[var(--ink-muted)]">
@@ -151,7 +177,58 @@ export function SessionBar() {
           >
             Sign out
           </button>
+          <button
+            type="button"
+            onClick={() => setShowWebhooks((v) => !v)}
+            className="underline decoration-[var(--line)] underline-offset-4 hover:text-[var(--ink)]"
+          >
+            {showWebhooks ? "Hide webhooks" : "Webhooks"}
+          </button>
         </div>
+        {showWebhooks ? (
+          <div className="flex flex-col gap-2 border-t border-[var(--line)] pt-3">
+            <p className="text-xs">
+              Register an HTTPS endpoint to receive deal event notifications for deals you are a
+              party to. The signing secret is shown once, at creation.
+            </p>
+            <div className="flex flex-wrap gap-2">
+              <Input
+                label="Webhook URL"
+                hideLabel
+                mono
+                fieldClassName="min-w-64 flex-1"
+                placeholder="https://example.com/webhooks/opendeal"
+                value={webhookUrl}
+                onChange={(e) => setWebhookUrl(e.target.value)}
+              />
+              <button
+                type="button"
+                disabled={webhookBusy || !webhookUrl.trim()}
+                onClick={onRegisterWebhook}
+                className="rounded border border-[var(--line)] px-3 py-1.5 disabled:opacity-50"
+              >
+                {webhookBusy ? "Registering…" : "Register webhook"}
+              </button>
+            </div>
+            {webhookError ? <p className="text-sm text-[var(--danger)]">{webhookError}</p> : null}
+            {webhookResult ? (
+              <div className="rounded border border-[var(--line)] p-2 text-xs">
+                <p>
+                  Endpoint <span className="font-mono">{webhookResult.id}</span> registered for{" "}
+                  {webhookResult.url}
+                </p>
+                <p className="mt-1 break-all font-mono text-[var(--ok)]">
+                  secret: {webhookResult.secret}
+                </p>
+                <p className="mt-1 text-[var(--ink-muted)]">
+                  Store this now — it is not shown again. Verify the{" "}
+                  <span className="font-mono">X-OpenDeal-Signature</span> header (HMAC-SHA256 of
+                  the raw body) on deliveries.
+                </p>
+              </div>
+            ) : null}
+          </div>
+        ) : null}
       </div>
     );
   }

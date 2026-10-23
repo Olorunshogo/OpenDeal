@@ -300,17 +300,6 @@ impl Api {
         }
         return Ok(envelope.data);
     }
-
-    async fn get_public<T: for<'de> Deserialize<'de>>(&self, path: &str) -> Result<T> {
-        let url = format!("{}{}", self.base, path);
-        let response = self.client.get(&url).send().await?;
-        let status = response.status();
-        let envelope: ApiEnvelope<T> = response.json().await?;
-        if !status.is_success() || !envelope.success {
-            bail!("API {path}: {} ({})", envelope.message, status);
-        }
-        return Ok(envelope.data);
-    }
 }
 
 async fn mint_party(api: &Api, sk_bytes: [u8; 32]) -> Result<Party> {
@@ -407,6 +396,7 @@ async fn run_live_e2e(
                 "mediator_pubkey": mediator.pubkey,
                 "delivery_deadline": deadline,
                 "acceptance_window_hours": 48,
+                "seller_payout_address": payout_addr,
             })),
         )
         .await
@@ -418,8 +408,14 @@ async fn run_live_e2e(
         canonical_hex: String,
     }
     let view: AgreementView = api
-        .get_public(&format!("/api/v1/deals/{}/agreement", deal.id))
-        .await?;
+        .authed(
+            reqwest::Method::GET,
+            &format!("/api/v1/deals/{}/agreement", deal.id),
+            &seller.token,
+            None,
+        )
+        .await
+        .context("get agreement")?;
     let canonical = hex::decode(&view.canonical_hex).context("canonical hex")?;
     let sig_seller = sign_bytes(&seller.sk, &canonical);
     let sig_buyer = sign_bytes(&buyer.sk, &canonical);
@@ -579,6 +575,27 @@ async fn run_live_e2e(
         .await
         .context("finalize settlement")?;
     println!(
+        "broadcast status={} settlement_txid={:?}",
+        deal.status, deal.settlement_txid
+    );
+    deal.settlement_txid
+        .as_ref()
+        .context("settlement_txid missing after finalize")?;
+
+    btc.call(None, "generatetoaddress", json!([1, mine_addr]))
+        .await
+        .context("mine settlement confirmation")?;
+
+    let deal: DealData = api
+        .authed(
+            reqwest::Method::POST,
+            &format!("/api/v1/deals/{}/settlement/confirm", deal.id),
+            &seller.token,
+            Some(json!({})),
+        )
+        .await
+        .context("confirm settlement")?;
+    println!(
         "settled status={} settlement_txid={:?}",
         deal.status, deal.settlement_txid
     );
@@ -586,12 +603,13 @@ async fn run_live_e2e(
         bail!("expected settled, got {}", deal.status);
     }
 
-    btc.call(None, "generatetoaddress", json!([1, mine_addr]))
-        .await
-        .ok();
-
     let receipt: DealReceipt = api
-        .get_public(&format!("/api/v1/deals/{}/receipt", deal.id))
+        .authed(
+            reqwest::Method::GET,
+            &format!("/api/v1/deals/{}/receipt", deal.id),
+            &seller.token,
+            None,
+        )
         .await
         .context("export receipt")?;
     receipt.verify().context("receipt.verify")?;
