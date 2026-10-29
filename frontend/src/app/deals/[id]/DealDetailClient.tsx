@@ -59,6 +59,10 @@ import { verifyDealReceipt, type ReceiptVerification } from "@/lib/receipt-verif
 import { canParticipantAct, participantRoleForAgreement } from "@/lib/workflow";
 import { assertEvidenceIntegrity } from "@/lib/evidence";
 
+// The other participant acts in their own browser. Poll so this page picks up their changes
+// without a reload, because a reload drops the in-memory signing key.
+const DEAL_POLL_MS = 5000;
+
 export function DealDetailClient({ dealId }: { dealId?: string } = {}) {
   const Shell = AppShell;
   const params = useParams<{ id: string }>();
@@ -100,16 +104,19 @@ export function DealDetailClient({ dealId }: { dealId?: string } = {}) {
     queryKey: ["deal", id, viewer],
     queryFn: () => getDeal(token, id),
     enabled: Boolean(id && token),
+    refetchInterval: DEAL_POLL_MS,
   });
   const agreementQuery = useQuery({
     queryKey: ["agreement", id, viewer],
     queryFn: () => getAgreement(token, id),
     enabled: Boolean(id && token),
+    refetchInterval: DEAL_POLL_MS,
   });
   const eventsQuery = useQuery({
     queryKey: ["events", id, viewer],
     queryFn: () => getEvents(token, id),
     enabled: Boolean(id && token),
+    refetchInterval: DEAL_POLL_MS,
   });
   const evidenceQuery = useQuery({
     queryKey: ["evidence", id, viewer],
@@ -139,12 +146,8 @@ export function DealDetailClient({ dealId }: { dealId?: string } = {}) {
     queryKey: ["settlement", id, viewer],
     queryFn: () => getSettlement(token, id),
     enabled: Boolean(token) && Boolean(dealQuery.data?.current_psbt),
-    refetchInterval: (query) => {
-      const phase = query.state.data?.phase;
-      return phase === "broadcasting" || phase === "broadcast" || phase === "broadcast_unknown"
-        ? 5000
-        : false;
-    },
+    // Poll in every phase: the other signer's partial signature arrives from their browser.
+    refetchInterval: DEAL_POLL_MS,
   });
 
   async function refresh() {
