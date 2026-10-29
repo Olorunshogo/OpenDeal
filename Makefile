@@ -1,4 +1,4 @@
-.PHONY: help up down logs ps api frontend install-frontend build build-api build-frontend e2e e2e-offline migrate check test tui test-tui addresses fund mine
+.PHONY: help up down logs ps api frontend install-frontend build build-api build-frontend e2e e2e-offline migrate check test tui test-tui btc-info wallet addresses fund mine btc
 
 ROOT := $(abspath $(dir $(lastword $(MAKEFILE_LIST))))
 
@@ -11,9 +11,13 @@ help:
 	@echo "  make api             Run API (loads migrations when RUN_MIGRATIONS=true)"
 	@echo "  make frontend        Run Next.js dev server"
 	@echo "  make tui             Terminal UI to prepare demo data (see docs/tui.md)"
+	@echo "  make btc-info        Which bitcoind the helpers use (same as the API), chain, wallets"
+	@echo "  make wallet          Load or create a regtest wallet, mine 101 blocks if it is low"
 	@echo "  make addresses       Two regtest wallet addresses (seller payout, buyer refund)"
-	@echo "  make fund ADDR=...   Send 50,000 regtest sats to an escrow address and mine a block"
-	@echo "  make mine            Mine one regtest block"
+	@echo "  make fund ADDR=...   Send 50,000 regtest sats (or AMOUNT=<btc>) to an escrow and mine a block"
+	@echo "  make mine            Mine one regtest block (or N=<blocks>)"
+	@echo "  make btc METHOD=...  Any bitcoin-cli RPC, e.g. make btc METHOD=getblockcount"
+	@echo "                       Add WALLET=<name> to any of these when several wallets are loaded"
 	@echo "  make install-frontend  pnpm install in frontend/"
 	@echo "  make build           Build API (release) + frontend"
 	@echo "  make build-api       cargo build --release -p opendeal-api"
@@ -46,14 +50,23 @@ migrate: api
 frontend:
 	cd $(ROOT)/frontend && pnpm dev
 
+btc-info:
+	@cd $(ROOT) && WALLET="$(WALLET)" ./scripts/regtest.sh info
+
+wallet:
+	@cd $(ROOT) && WALLET="$(WALLET)" ./scripts/regtest.sh wallet
+
 addresses:
-	@cd $(ROOT) && ./scripts/regtest.sh addresses
+	@cd $(ROOT) && WALLET="$(WALLET)" ./scripts/regtest.sh addresses
 
 fund:
-	@cd $(ROOT) && ./scripts/regtest.sh fund "$(ADDR)"
+	@cd $(ROOT) && WALLET="$(WALLET)" ./scripts/regtest.sh fund "$(ADDR)" "$(or $(AMOUNT),0.0005)"
 
 mine:
-	@cd $(ROOT) && ./scripts/regtest.sh mine
+	@cd $(ROOT) && WALLET="$(WALLET)" ./scripts/regtest.sh mine "$(or $(N),1)"
+
+btc:
+	@cd $(ROOT) && WALLET="$(WALLET)" ./scripts/regtest.sh cli "$(METHOD)" '$(or $(PARAMS),[])'
 
 # Pass flags with ARGS, e.g. make tui ARGS="--recovery ~/Downloads/opendeal-encrypted-demo.json"
 tui:

@@ -1,44 +1,47 @@
 "use client";
 
+import { ArrowRight } from "lucide-react";
 import Link from "next/link";
-import { motion } from "framer-motion";
-import { fadeUpVariants, transitionSlow } from "@/lib/motion";
+import StarBorder from "@/components/react-bits/StarBorder";
+import { RevealOnView } from "@/components/motion/RevealOnView";
+import { ButtonLink } from "@/components/ui";
+import { FINAL_CTA } from "@/app/content";
 
 // === Component
 
 export function FinalCta(): React.JSX.Element {
   return (
-    <motion.section
-      initial="initial"
-      whileInView="animate"
-      viewport={{ once: true, margin: "-80px" }}
-      variants={fadeUpVariants}
-      transition={transitionSlow}
-      className="flex flex-col items-center gap-8 border-t border-[var(--line)] px-4 py-20 text-center sm:px-6 sm:py-28 lg:px-12"
-    >
-      <div className="flex flex-col items-center gap-4">
-        <h2 className="max-w-2xl font-[family-name:var(--font-display)] text-3xl sm:text-4xl">
-          Start a deal where the agreement is the contract.
-        </h2>
-        <p className="max-w-xl text-[var(--ink-muted)]">
-          Regtest experimental. Bring a buyer and a mediator pubkey, or open the mediator desk to see
-          the other side of a dispute.
-        </p>
-      </div>
-      <div className="flex flex-wrap items-center justify-center gap-3">
-        <Link
-          href="/deals/new"
-          className="rounded bg-[var(--accent)] px-6 py-3 text-sm font-semibold text-[var(--bg-deep)] transition hover:bg-[var(--accent-soft)]"
-        >
-          Start a deal
-        </Link>
-        <Link
-          href="/market"
-          className="rounded border border-[var(--line)] px-6 py-3 text-sm text-[var(--ink)] transition hover:border-[var(--accent)]"
-        >
-          Browse the market
-        </Link>
-      </div>
-    </motion.section>
+    <section className="px-4 py-20 sm:px-6 sm:py-28 lg:px-12">
+      <RevealOnView className="relative isolate flex flex-col items-center gap-8 overflow-hidden rounded-[2rem] border border-violet/30 px-6 py-16 text-center sm:px-12 sm:py-20">
+        <span
+          aria-hidden="true"
+          className="absolute inset-0 -z-10 bg-[radial-gradient(60%_80%_at_50%_0%,rgba(75,29,239,0.35),transparent_70%),radial-gradient(40%_60%_at_50%_100%,rgba(247,147,26,0.18),transparent_70%)]"
+        />
+        <div className="flex flex-col items-center gap-4">
+          <h2 className="max-w-2xl font-display text-3xl font-semibold tracking-tight text-ink sm:text-5xl">
+            {FINAL_CTA.title}
+          </h2>
+          <p className="max-w-xl text-ink-muted">{FINAL_CTA.body}</p>
+        </div>
+        <div className="flex flex-col items-center gap-3 sm:flex-row">
+          <StarBorder
+            as={Link}
+            href={FINAL_CTA.primaryCta.href}
+            color="#F7931A"
+            radius={999}
+            backgroundColor="#F7931A"
+            textColor="#1A0F02"
+            borderColor="rgba(247, 147, 26, 0.45)"
+            className="font-semibold"
+          >
+            {FINAL_CTA.primaryCta.label}
+            <ArrowRight aria-hidden="true" className="size-4" />
+          </StarBorder>
+          <ButtonLink href={FINAL_CTA.secondaryCta.href} variant="secondary" size="lg">
+            {FINAL_CTA.secondaryCta.label}
+          </ButtonLink>
+        </div>
+      </RevealOnView>
+    </section>
   );
 }

@@ -1,6 +1,7 @@
 "use client";
 
 import { useQuery } from "@tanstack/react-query";
+import { Alert } from "@/components/ui";
 import { API_HEALTH_QUERY_KEY, checkApiHealth, type ApiHealth } from "@/lib/api";
 
 // === Hook
@@ -24,9 +25,9 @@ const STATUS_LABEL: Record<ApiHealth, string> = {
 };
 
 const STATUS_DOT_CLASS: Record<ApiHealth, string> = {
-  online: "bg-[var(--ok)]",
-  degraded: "bg-[var(--warn)]",
-  offline: "bg-[var(--danger)]",
+  online: "bg-ok",
+  degraded: "bg-warn",
+  offline: "bg-danger",
 };
 
 export function ApiStatusIndicator(): React.JSX.Element {
@@ -35,11 +36,11 @@ export function ApiStatusIndicator(): React.JSX.Element {
     <span
       role="status"
       aria-live="polite"
-      className="inline-flex items-center gap-1.5 text-xs text-[var(--ink-muted)]"
+      className="inline-flex items-center gap-1.5 text-xs text-ink-muted"
     >
       <span
         aria-hidden="true"
-        className={`size-2 rounded-full ${health ? STATUS_DOT_CLASS[health] : "bg-[var(--line)]"}`}
+        className={`size-2 rounded-full ${health ? STATUS_DOT_CLASS[health] : "bg-line-strong"}`}
       />
       <span className="hidden sm:inline">{health ? STATUS_LABEL[health] : "Checking API"}</span>
     </span>
@@ -51,19 +52,13 @@ export function ApiStatusBanner(): React.JSX.Element | null {
   if (health !== "degraded" && health !== "offline") {
     return null;
   }
-  const offline: boolean = health === "offline";
-  return (
-    <div
-      role="alert"
-      className={`rounded border px-3 py-2 text-sm ${
-        offline
-          ? "border-[var(--danger)]/60 bg-[var(--danger)]/10 text-[var(--danger)]"
-          : "border-[var(--warn)]/50 bg-[var(--warn)]/10 text-[var(--ink)]"
-      }`}
-    >
-      {offline
-        ? "The OpenDeal API is not reachable. Actions will fail until it is back. Retrying every 10 seconds."
-        : "The OpenDeal API is up but its database is unavailable. Retrying every 10 seconds."}
-    </div>
+  return health === "offline" ? (
+    <Alert tone="danger" title="The OpenDeal API is not reachable">
+      Actions will fail until it is back. Retrying every 10 seconds.
+    </Alert>
+  ) : (
+    <Alert tone="warn" title="The OpenDeal API is degraded">
+      It is up, but its database is unavailable. Retrying every 10 seconds.
+    </Alert>
   );
 }

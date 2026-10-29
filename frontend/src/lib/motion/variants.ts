@@ -43,3 +43,56 @@ export function staggerDelay(index: number, step = 0.1): Transition {
     delay: index * step,
   };
 }
+
+// === Durations
+
+export const motionDuration = {
+  fast: 0.15,
+  base: 0.25,
+  slow: 0.4,
+} as const;
+
+export const transitionFast: Transition = {
+  duration: motionDuration.fast,
+  ease: motionEase,
+};
+
+// === Springs
+
+export const springPanel: Transition = {
+  type: "spring",
+  damping: 28,
+  stiffness: 320,
+};
+
+export const springPop: Transition = {
+  type: "spring",
+  damping: 24,
+  stiffness: 420,
+};
+
+// === Menus and overlays
+
+export const menuVariants: Variants = {
+  initial: { opacity: 0, y: -6, scale: 0.98 },
+  animate: { opacity: 1, y: 0, scale: 1 },
+  exit: { opacity: 0, y: -6, scale: 0.98 },
+};
+
+export const backdropVariants: Variants = {
+  initial: { opacity: 0 },
+  animate: { opacity: 1 },
+  exit: { opacity: 0 },
+};
+
+export const sheetVariants: Variants = {
+  initial: { y: "100%" },
+  animate: { y: 0 },
+  exit: { y: "100%" },
+};
+
+export const dialogVariants: Variants = {
+  initial: { opacity: 0, y: 16, scale: 0.97 },
+  animate: { opacity: 1, y: 0, scale: 1 },
+  exit: { opacity: 0, y: 16, scale: 0.97 },
+};

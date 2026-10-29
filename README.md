@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="frontend/public/full-logo-tr.png" alt="OpenDeal" width="280"/>
+  <img src="frontend/public/full-opendeal-logo-tr.png" alt="OpenDeal" width="320"/>
 </p>
 
 <h3 align="center">Trust-minimised escrow for peer-to-peer commerce, settled on Bitcoin.</h3>
@@ -126,12 +126,14 @@ make frontend   # terminal 2 → http://localhost:3000
 You play the seller in a normal browser window and the buyer in an incognito window.
 
 1. **Sign in** → **Create identity** in both windows. Each one downloads an encrypted recovery file.
-2. In a third terminal, run `make addresses` to get a seller payout address and a buyer refund address.
+2. In a third terminal, run `make btc-info` to confirm the helpers see the same node as the API, `make wallet` to get a funded wallet, then `make addresses` for a seller payout address and a buyer refund address.
 3. *(Optional)* Run `make tui` to prepare the deal in the terminal, then import it under **New deal → Import prepared configuration**.
 4. As the seller, create the deal. The buyer finds it under **My deals**. Both click **Sign agreement**.
 5. As the seller, click **Prepare funding**. Run `make fund ADDR=<escrow address>`, then click **Verify funding**.
 6. **Mark shipped**, then **Accept delivery**, then **Propose settlement**. Both parties **Sign**, then **Finalize**, then run `make mine`, then click **Check confirmation**.
 7. Click **Verify receipt** and download the proof.
+
+The bitcoind helpers (`make btc-info`, `wallet`, `addresses`, `fund`, `mine`, `btc`) read the API's `BITCOIN_RPC_*` settings, so they work the same with Polar or the bundled bitcoind. See [Using Polar](docs/demo.md#using-polar-instead-of-the-compose-bitcoind) and `make help`.
 
 Step-by-step guides:
 - [Quick demo](docs/quick-demo.md)

@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useQueryClient } from "@tanstack/react-query";
+import { Button, ButtonLink } from "@/components/ui";
 import { clearSession, useHasSigningCapability, useSession } from "@/lib/session";
 
 /** Header slot: "Sign in" when signed out, otherwise the short identity and a sign-out button. */
@@ -12,9 +13,9 @@ export function HeaderIdentity() {
 
   if (!session?.token) {
     return (
-      <Link href="/onboarding" className="hover:text-[var(--ink)]">
+      <ButtonLink href="/onboarding" size="sm" variant="secondary">
         Sign in
-      </Link>
+      </ButtonLink>
     );
   }
   const short = `${session.pubkey.slice(0, 8)}…`;
@@ -23,26 +24,24 @@ export function HeaderIdentity() {
       <Link
         href="/onboarding"
         title={`${session.pubkey}\n${hasKey ? "Signing key unlocked in this tab" : "Signing key locked: unlock to sign"}`}
-        className="inline-flex items-center gap-1.5 font-mono text-xs hover:text-[var(--ink)]"
+        className="inline-flex items-center gap-1.5 rounded-full border border-line bg-glass px-3 py-1 font-mono text-xs text-ink hover:border-violet/60"
       >
-        <span
-          aria-hidden
-          className={`h-2 w-2 rounded-full ${hasKey ? "bg-[var(--ok)]" : "bg-[var(--warn)]"}`}
-        />
+        <span aria-hidden className={`size-2 rounded-full ${hasKey ? "bg-ok" : "bg-warn"}`} />
         {short}
         <span className="sr-only">{hasKey ? "(signing key unlocked)" : "(signing key locked)"}</span>
       </Link>
-      <button
-        type="button"
+      <Button
+        variant="link"
+        size="sm"
+        className="text-xs"
         onClick={() => {
           clearSession();
           void queryClient.cancelQueries();
           queryClient.clear();
         }}
-        className="text-xs underline decoration-[var(--line)] underline-offset-4 hover:text-[var(--ink)]"
       >
         Sign out
-      </button>
+      </Button>
     </span>
   );
 }

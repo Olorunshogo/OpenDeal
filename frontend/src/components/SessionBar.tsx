@@ -1,17 +1,25 @@
 "use client";
 
-import Link from "next/link";
-import { useState } from "react";
+import { zodResolver } from "@hookform/resolvers/zod";
 import { useQueryClient } from "@tanstack/react-query";
+import { Webhook } from "lucide-react";
+import { useState } from "react";
+import { useForm } from "react-hook-form";
 import {
-  nostrLogin,
-  registerWebhook,
-  requestNostrChallenge,
-  type WebhookEndpoint,
-} from "@/lib/api";
+  Alert,
+  Badge,
+  Button,
+  ButtonLink,
+  CopyButton,
+  HashValue,
+  Input,
+  PasswordInput,
+} from "@/components/ui";
+import { nostrLogin, registerWebhook, requestNostrChallenge, type WebhookEndpoint } from "@/lib/api";
 import { normPubkey, pubkeyFromSecret } from "@/lib/crypto";
 import { signInWithSecret as signInWithKey } from "@/lib/identity-session";
 import { hasNip07, signLoginEventWithExtension } from "@/lib/nostr";
+import { errorMessage } from "@/lib/server-errors";
 import {
   clearSession,
   getSigningCapability,
@@ -22,7 +30,7 @@ import {
   useSession,
   type Session,
 } from "@/lib/session";
-import { Input } from "@/components/ui/Input";
+import { webhookSchema, type WebhookValues } from "@/schemas/webhook";
 
 export function SessionBar() {
   const session: Session | null = useSession();
@@ -35,24 +43,12 @@ export function SessionBar() {
   const [busy, setBusy] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
   const [showWebhooks, setShowWebhooks] = useState<boolean>(false);
-  const [webhookUrl, setWebhookUrl] = useState<string>("");
-  const [webhookBusy, setWebhookBusy] = useState<boolean>(false);
   const [webhookError, setWebhookError] = useState<string | null>(null);
   const [webhookResult, setWebhookResult] = useState<WebhookEndpoint | null>(null);
-  const [copyState, setCopyState] = useState<"idle" | "copied" | "failed">("idle");
-
-  async function onCopyPubkey() {
-    if (!session) {
-      return;
-    }
-    try {
-      await navigator.clipboard.writeText(session.pubkey);
-      setCopyState("copied");
-    } catch {
-      setCopyState("failed");
-    }
-    setTimeout(() => setCopyState("idle"), 1500);
-  }
+  const webhookForm = useForm<WebhookValues>({
+    resolver: zodResolver(webhookSchema),
+    defaultValues: { url: "" },
+  });
 
   function persist(next: Session) {
     saveSession(next);
@@ -70,13 +66,9 @@ export function SessionBar() {
       const { nonce } = await requestNostrChallenge(pk);
       const event = await signLoginEventWithExtension(nonce);
       const auth = await nostrLogin(event);
-      persist({
-        token: auth.token,
-        pubkey: auth.pubkey,
-        roleLabel,
-      });
+      persist({ token: auth.token, pubkey: auth.pubkey, roleLabel });
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Nostr login failed");
+      setError(errorMessage(err, "Nostr login failed"));
     } finally {
       setBusy(false);
     }
@@ -97,7 +89,7 @@ export function SessionBar() {
       );
       setSigningSecret("");
     } catch (err) {
-      setError(err instanceof Error ? err.message : "login with secret failed");
+      setError(errorMessage(err, "login with secret failed"));
     } finally {
       setBusy(false);
     }
@@ -123,7 +115,7 @@ export function SessionBar() {
         setError(null);
       }
     } catch (keyError) {
-      setError(keyError instanceof Error ? keyError.message : "Could not attach signing key.");
+      setError(errorMessage(keyError, "Could not attach signing key."));
     }
   }
 
@@ -134,209 +126,171 @@ export function SessionBar() {
     setSigningSecret("");
   }
 
-  async function onRegisterWebhook() {
+  const onRegisterWebhook = webhookForm.handleSubmit(async (values: WebhookValues) => {
     setWebhookError(null);
     const current = loadSession();
     if (!current?.token) {
       setWebhookError("Sign in first.");
       return;
     }
-    setWebhookBusy(true);
     try {
-      const endpoint = await registerWebhook(current.token, webhookUrl.trim());
+      const endpoint = await registerWebhook(current.token, values.url);
       setWebhookResult(endpoint);
-      setWebhookUrl("");
+      webhookForm.reset({ url: "" });
     } catch (err) {
-      setWebhookError(err instanceof Error ? err.message : "webhook registration failed");
-    } finally {
-      setWebhookBusy(false);
+      setWebhookError(errorMessage(err, "webhook registration failed"));
     }
-  }
+  });
 
-  const linkButtonClass: string =
-    "underline decoration-[var(--line)] underline-offset-4 hover:text-[var(--ink)]";
+  const signingKeyForm = (label: string): React.JSX.Element => (
+    <div className="flex flex-col gap-3">
+      <PasswordInput
+        label={label}
+        mono
+        autoComplete="off"
+        value={signingSecret}
+        onChange={(event) => setSigningSecret(event.target.value)}
+      />
+      <Button
+        variant="secondary"
+        size="sm"
+        className="w-fit"
+        loading={busy}
+        disabled={!signingSecret.trim()}
+        onClick={() => void onAttachSigningKey()}
+      >
+        Use this key
+      </Button>
+    </div>
+  );
 
   if (session && !session.token) {
     return (
-      <div className="flex flex-col gap-3 rounded-lg border border-[var(--accent)]/40 bg-[var(--accent)]/10 p-3 text-sm">
-        <p className="text-[var(--ink)]">
-          Your sign-in for {session.pubkey.slice(0, 8)}…{session.pubkey.slice(-6)}{" "}
-          expired.
+      <div className="flex flex-col gap-4 rounded-2xl border border-warn/40 bg-warn/[0.06] p-4 text-sm">
+        <p className="text-ink">
+          Your sign-in for {session.pubkey.slice(0, 8)}…{session.pubkey.slice(-6)} expired.
           {hasSigningKey
             ? " Your signing key is only in memory; it will be lost on refresh."
             : " Sign in again with the same key to keep acting on your deals."}
         </p>
         <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center">
           {hasSigningKey ? (
-            <button
-              type="button"
-              disabled={busy}
+            <Button
+              size="sm"
+              loading={busy}
+              loadingLabel="Signing in…"
               onClick={() => {
                 const secret = getSigningCapability(session.pubkey);
                 if (secret) {
                   void signInWithSecret(secret, session.roleLabel);
                 }
               }}
-              className="rounded bg-[var(--accent)] px-3 py-1.5 font-medium text-[var(--bg-deep)] disabled:opacity-50"
             >
-              {busy ? "Signing in…" : "Sign in again"}
-            </button>
+              Sign in again
+            </Button>
           ) : (
-            <button
-              type="button"
-              disabled={busy}
-              onClick={onConnectExtension}
-              className="rounded bg-[var(--accent)] px-3 py-1.5 font-medium text-[var(--bg-deep)] disabled:opacity-50"
-            >
-              {busy ? "Working…" : "Reconnect Nostr extension"}
-            </button>
+            <Button size="sm" loading={busy} onClick={onConnectExtension}>
+              Reconnect Nostr extension
+            </Button>
           )}
-          <Link href="/onboarding" className={`w-fit ${linkButtonClass}`}>
+          <ButtonLink href="/onboarding" variant="link" size="sm">
             Unlock from recovery file or this device
-          </Link>
-          <button type="button" onClick={onClear} className={`w-fit ${linkButtonClass}`}>
+          </ButtonLink>
+          <Button variant="link" size="sm" onClick={onClear}>
             Sign out
-          </button>
+          </Button>
         </div>
         {!hasSigningKey ? (
-          <div className="flex flex-col gap-2 border-t border-[var(--line)] pt-3">
-            <button
-              type="button"
+          <div className="flex flex-col gap-3 border-t border-line pt-3">
+            <Button
+              variant="link"
+              size="sm"
+              className="w-fit"
               onClick={() => setShowSigningKeyForm((visible) => !visible)}
-              className={linkButtonClass}
             >
               {showSigningKeyForm ? "Hide key entry" : "Reconnect with local signing key"}
-            </button>
-            {showSigningKeyForm ? (
-              <div className="flex flex-col gap-2 sm:flex-row sm:items-end">
-                <Input
-                  label="Signing key (32-byte hex, memory only)"
-                  mono
-                  value={signingSecret}
-                  onChange={(event) => setSigningSecret(event.target.value)}
-                />
-                <button
-                  type="button"
-                  disabled={busy || !signingSecret.trim()}
-                  onClick={() => void onAttachSigningKey()}
-                  className="rounded border border-[var(--line)] px-3 py-1.5 disabled:opacity-50"
-                >
-                  {busy ? "Signing in…" : "Use this key"}
-                </button>
-              </div>
-            ) : null}
+            </Button>
+            {showSigningKeyForm ? signingKeyForm("Signing key (32-byte hex, memory only)") : null}
           </div>
         ) : null}
-        {error ? <p className="text-sm text-[var(--danger)]">{error}</p> : null}
+        {error ? <Alert tone="danger">{error}</Alert> : null}
       </div>
     );
   }
 
   if (session) {
     return (
-      <div className="flex flex-col gap-2 text-sm text-[var(--ink-muted)]">
+      <div className="flex flex-col gap-3 text-sm text-ink-muted">
         <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
-          <span className="network-badge rounded border border-[var(--line)] px-2 py-1 text-[var(--accent-soft)]">
+          <Badge tone="brand" dot className="network-badge">
             regtest experimental
+          </Badge>
+          <span className="inline-flex items-center gap-1.5">
+            Signed in ·
+            <HashValue value={session.pubkey} copyable={false} />
           </span>
-          <span className="break-all">
-            Signed in · {session.pubkey.slice(0, 8)}…{session.pubkey.slice(-6)}
-          </span>
-          <button
-            type="button"
-            onClick={onCopyPubkey}
-            title={session.pubkey}
-            className={linkButtonClass}
-          >
-            {copyState === "copied" ? "Copied" : copyState === "failed" ? "Copy failed" : "Copy pubkey"}
-          </button>
-          {hasSigningKey ? (
-            <span className="text-[10px] text-[var(--ok)]">signing key in memory</span>
-          ) : (
-            <span className="text-[10px] text-[var(--danger)]">
-              no signing key (needed for agreement sign)
-            </span>
-          )}
-          <button type="button" onClick={onClear} className={linkButtonClass}>
+          <CopyButton value={session.pubkey} label="Copy pubkey" variant="ghost" />
+          <Badge tone={hasSigningKey ? "ok" : "danger"}>
+            {hasSigningKey ? "signing key in memory" : "no signing key (needed for agreement sign)"}
+          </Badge>
+          <Button variant="link" size="sm" onClick={onClear}>
             Sign out
-          </button>
-          <button
-            type="button"
-            onClick={() => setShowWebhooks((v) => !v)}
-            className={linkButtonClass}
+          </Button>
+          <Button
+            variant="link"
+            size="sm"
+            leading={<Webhook className="size-3.5" />}
+            onClick={() => setShowWebhooks((visible) => !visible)}
           >
             {showWebhooks ? "Hide webhooks" : "Webhooks"}
-          </button>
+          </Button>
         </div>
-        {error ? <p className="text-sm text-[var(--danger)]">{error}</p> : null}
+        {error ? <Alert tone="danger">{error}</Alert> : null}
         {!hasSigningKey && !showSigningKeyForm ? (
-          <button
-            type="button"
-            onClick={() => setShowSigningKeyForm(true)}
-            className={`w-fit text-xs ${linkButtonClass}`}
-          >
+          <Button variant="link" size="sm" className="w-fit text-xs" onClick={() => setShowSigningKeyForm(true)}>
             Add local signing key
-          </button>
+          </Button>
         ) : null}
         {!hasSigningKey && showSigningKeyForm ? (
-          <div className="flex flex-col gap-2 border-t border-[var(--line)] pt-3 sm:flex-row sm:items-end">
-            <Input
-              label="Signing key (32-byte hex, memory only)"
-              mono
-              value={signingSecret}
-              onChange={(event) => setSigningSecret(event.target.value)}
-            />
-            <button
-              type="button"
-              disabled={busy || !signingSecret.trim()}
-              onClick={() => void onAttachSigningKey()}
-              className="rounded border border-[var(--line)] px-3 py-1.5 disabled:opacity-50"
-            >
-              Use this key
-            </button>
-          </div>
+          <div className="border-t border-line pt-3">{signingKeyForm("Signing key (32-byte hex, memory only)")}</div>
         ) : null}
         {showWebhooks ? (
-          <div className="flex flex-col gap-2 border-t border-[var(--line)] pt-3">
+          <div className="flex flex-col gap-3 border-t border-line pt-3">
             <p className="text-xs">
-              Register an HTTPS endpoint to receive deal event notifications for deals you are a
-              party to. The signing secret is shown once, at creation.
+              Register an HTTPS endpoint to receive deal event notifications for deals you are a party to. The
+              signing secret is shown once, at creation.
             </p>
-            <div className="flex flex-col gap-2 sm:flex-row">
+            <form onSubmit={onRegisterWebhook} className="flex flex-col gap-2 sm:flex-row sm:items-start" noValidate>
               <Input
                 label="Webhook URL"
                 hideLabel
                 mono
                 fieldClassName="min-w-0 flex-1"
                 placeholder="https://example.com/webhooks/opendeal"
-                value={webhookUrl}
-                onChange={(e) => setWebhookUrl(e.target.value)}
+                error={webhookForm.formState.errors.url?.message}
+                {...webhookForm.register("url")}
               />
-              <button
-                type="button"
-                disabled={webhookBusy || !webhookUrl.trim()}
-                onClick={onRegisterWebhook}
-                className="rounded border border-[var(--line)] px-3 py-1.5 disabled:opacity-50"
+              <Button
+                type="submit"
+                variant="secondary"
+                loading={webhookForm.formState.isSubmitting}
+                loadingLabel="Registering…"
               >
-                {webhookBusy ? "Registering…" : "Register webhook"}
-              </button>
-            </div>
-            {webhookError ? <p className="text-sm text-[var(--danger)]">{webhookError}</p> : null}
+                Register webhook
+              </Button>
+            </form>
+            {webhookError ? <Alert tone="danger">{webhookError}</Alert> : null}
             {webhookResult ? (
-              <div className="flex flex-col gap-1 rounded border border-[var(--line)] p-2 text-xs">
-                <p className="break-all">
-                  Endpoint <span className="font-mono">{webhookResult.id}</span> registered for{" "}
-                  {webhookResult.url}
-                </p>
-                <p className="break-all font-mono text-[var(--ok)]">
-                  secret: {webhookResult.secret}
-                </p>
-                <p className="text-[var(--ink-muted)]">
-                  Store this now. It is not shown again. Verify the{" "}
-                  <span className="font-mono">X-OpenDeal-Signature</span> header (HMAC-SHA256 of
-                  the raw body) on deliveries.
-                </p>
-              </div>
+              <Alert tone="ok" title={`Endpoint ${webhookResult.id} registered for ${webhookResult.url}`}>
+                <span className="flex flex-col gap-2">
+                  <HashValue value={webhookResult.secret} full />
+                  <span>
+                    Store this now. It is not shown again. Verify the{" "}
+                    <span className="font-mono text-ink">X-OpenDeal-Signature</span> header (HMAC-SHA256 of the raw
+                    body) on deliveries.
+                  </span>
+                </span>
+              </Alert>
             ) : null}
           </div>
         ) : null}
@@ -345,52 +299,42 @@ export function SessionBar() {
   }
 
   return (
-    <div className="flex flex-col gap-3 rounded-lg border border-[var(--line)] bg-[var(--bg-lift)]/60 p-3 text-sm">
-      <p className="text-[var(--ink-muted)]">
-        Not signed in. Create an identity or restore one from your recovery file. Your key stays
-        in this browser; OpenDeal only sees a signed one-time challenge.
+    <div className="flex flex-col gap-4 rounded-2xl border border-line bg-glass p-4 text-sm backdrop-blur-md">
+      <p className="text-ink-muted">
+        Not signed in. Create an identity or restore one from your recovery file. Your key stays in this browser;
+        OpenDeal only sees a signed one-time challenge.
       </p>
       <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center">
-        <Link
-          href="/onboarding"
-          className="rounded bg-[var(--accent)] px-3 py-1.5 text-center font-medium text-[var(--bg-deep)]"
-        >
+        <ButtonLink href="/onboarding" size="sm">
           Sign in or create identity
-        </Link>
-        <button
-          type="button"
-          disabled={busy}
-          onClick={onConnectExtension}
-          className="rounded border border-[var(--line)] px-3 py-1.5 hover:border-[var(--accent)] disabled:opacity-50"
-        >
-          {busy ? "Working…" : "Connect Nostr extension"}
-        </button>
-        <button
-          type="button"
-          onClick={() => setShowAdvanced((v) => !v)}
-          className="w-fit text-xs underline decoration-[var(--line)] underline-offset-4"
-        >
+        </ButtonLink>
+        <Button variant="secondary" size="sm" loading={busy} onClick={onConnectExtension}>
+          Connect Nostr extension
+        </Button>
+        <Button variant="link" size="sm" className="w-fit text-xs" onClick={() => setShowAdvanced((visible) => !visible)}>
           {showAdvanced ? "Hide advanced" : "Advanced"}
-        </button>
+        </Button>
       </div>
-      {error ? <p className="text-sm text-[var(--danger)]">{error}</p> : null}
+      {error ? <Alert tone="danger">{error}</Alert> : null}
       {showAdvanced ? (
-        <div className="flex flex-col gap-2 border-t border-[var(--line)] pt-3 sm:flex-row sm:items-end">
-          <Input
+        <div className="flex flex-col gap-3 border-t border-line pt-3">
+          <PasswordInput
             label="Raw signing key (32-byte hex, memory only)"
             mono
-            fieldClassName="min-w-0 flex-1"
+            autoComplete="off"
             value={signingSecret}
-            onChange={(e) => setSigningSecret(e.target.value)}
+            onChange={(event) => setSigningSecret(event.target.value)}
           />
-          <button
-            type="button"
-            disabled={busy || !signingSecret.trim()}
+          <Button
+            variant="secondary"
+            size="sm"
+            className="w-fit"
+            loading={busy}
+            disabled={!signingSecret.trim()}
             onClick={() => signInWithSecret(signingSecret.trim(), roleLabel)}
-            className="rounded border border-[var(--line)] px-3 py-1.5 disabled:opacity-50"
           >
             Sign in with this key
-          </button>
+          </Button>
         </div>
       ) : null}
     </div>

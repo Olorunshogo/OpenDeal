@@ -1,6 +1,7 @@
 "use client";
 
 import { useQuery } from "@tanstack/react-query";
+import { Alert } from "@/components/ui";
 import { getMeta } from "@/lib/api";
 
 function normalizeNetwork(network: string | null | undefined): string {
@@ -31,25 +32,22 @@ export function NetworkBanner({ network }: { network?: string | null }) {
   const isMainnet = resolved === "bitcoin" || resolved === "mainnet";
 
   return (
-    <div
-      role="status"
-      className={`flex flex-col gap-1 rounded border px-3 py-2 text-sm ${
-        isMainnet
-          ? "border-[var(--danger)]/60 bg-[var(--danger)]/10 text-[var(--danger)]"
-          : "border-[var(--accent)]/40 bg-[var(--accent)]/10 text-[var(--ink)]"
-      }`}
+    <Alert
+      tone={isMainnet ? "danger" : "warn"}
+      title={
+        <>
+          Active Bitcoin network: <span className="font-semibold">{resolved}</span>
+        </>
+      }
     >
-      <p>
-        Active Bitcoin network: <span className="font-semibold">{resolved}</span>
-        {isMainnet
-          ? ". Real funds. Double-check addresses, amounts, and PSBT outputs."
-          : ". Test coins only. Confirm faucet deposits before verifying funding."}
-      </p>
-      {cap != null ? (
-        <p className="text-xs opacity-80">
-          Pilot amount cap: {cap.toLocaleString()} sats
-        </p>
-      ) : null}
-    </div>
+      <span className="flex flex-col gap-1">
+        <span>
+          {isMainnet
+            ? "Real funds. Double-check addresses, amounts, and PSBT outputs."
+            : "Test coins only. Confirm faucet deposits before verifying funding."}
+        </span>
+        {cap != null ? <span className="text-xs">Pilot amount cap: {cap.toLocaleString()} sats</span> : null}
+      </span>
+    </Alert>
   );
 }

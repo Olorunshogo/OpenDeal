@@ -1,20 +1,31 @@
 "use client";
 
-import Link from "next/link";
 import { useParams, useSearchParams } from "next/navigation";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { DealLifecycleGuide } from "@/components/DealLifecycleGuide";
+import { CheckCircle2, FileCheck2, PackageCheck, Scale, Truck, Wallet } from "lucide-react";
 import { AppShell } from "@/components/AppShell";
+import { DealLifecycleGuide } from "@/components/DealLifecycleGuide";
+import { PageHeader } from "@/components/layout/PageHeader";
 import { NetworkBanner } from "@/components/NetworkBanner";
 import { UnlockSigningKey } from "@/components/UnlockSigningKey";
-import { Input } from "@/components/ui/Input";
-import { Textarea } from "@/components/ui/Textarea";
+import {
+  Alert,
+  Amount,
+  Badge,
+  ButtonLink,
+  Card,
+  CardHeader,
+  DataList,
+  HashValue,
+  Input,
+  Skeleton,
+  StatusBadge,
+} from "@/components/ui";
 import {
   ApiRequestError,
   attachPsbtSignature,
   confirmSettlement,
-  downloadEvidenceContent,
   finalizeSettlement,
   getAgreement,
   getDeal,
@@ -22,27 +33,19 @@ import {
   getFundingInstructions,
   getMeta,
   getReceipt,
-  getReputation,
   getSettlement,
-  listEvidence,
   openDispute,
   prepareFunding,
   proposeSettlement,
   signAgreement,
-  submitEvidence,
   transitionDeal,
   verifyFunding,
-  type Deal,
   type DealEvent,
   type DealStatus,
-  type Evidence,
-  type FundingInstructions,
-  type SettlementProgress,
   type SettlementPurpose,
 } from "@/lib/api";
 import { normPubkey, signCanonicalBytes } from "@/lib/crypto";
 import {
-  purposeLabel,
   signPsbtWithSecret,
   summarizePsbt,
   unsignedPsbtTxid,
@@ -58,7 +61,16 @@ import {
 import { verifyCanonicalAgreement } from "@/lib/agreement-verification";
 import { verifyDealReceipt, type ReceiptVerification } from "@/lib/receipt-verification";
 import { actionBlockedReason, canParticipantAct, participantRoleForAgreement } from "@/lib/workflow";
-import { assertEvidenceIntegrity } from "@/lib/evidence";
+import { errorMessage } from "@/lib/server-errors";
+import { ActionButton } from "./ActionButton";
+import { AgreementCard } from "./AgreementCard";
+import { DataFreshness } from "./DataFreshness";
+import { DealEvidencePanel } from "./DealEvidencePanel";
+import { DealTimeline } from "./DealTimeline";
+import { FundingCard } from "./FundingCard";
+import { PartyReputation } from "./PartyReputation";
+import { ReceiptPanel } from "./ReceiptPanel";
+import { SettlementPanel } from "./SettlementPanel";
 
 // The other participant acts in their own browser. Poll so this page picks up their changes
 // without a reload, because a reload drops the in-memory signing key. Only the deal is polled
@@ -93,14 +105,8 @@ export function DealDetailClient({ dealId }: { dealId?: string } = {}) {
   const [declined, setDeclined] = useState(false);
   const [settlementBusy, setSettlementBusy] = useState(false);
   const [confirmBlockHash, setConfirmBlockHash] = useState("");
-  const [evidenceKind, setEvidenceKind] = useState("note");
-  const [evidenceContent, setEvidenceContent] = useState("");
   const [disputeReason, setDisputeReason] = useState("");
-  const [evidenceBusy, setEvidenceBusy] = useState(false);
   const [actionBusy, setActionBusy] = useState(false);
-  const [downloadingEvidenceId, setDownloadingEvidenceId] = useState<string | null>(null);
-  const [evidenceDownloadError, setEvidenceDownloadError] = useState<string | null>(null);
-  const [escrowCopyState, setEscrowCopyState] = useState<"idle" | "copied" | "failed">("idle");
   const token: string = session?.token ?? "";
   const viewer: string | undefined = session?.pubkey;
 
@@ -133,11 +139,6 @@ export function DealDetailClient({ dealId }: { dealId?: string } = {}) {
       void queryClient.invalidateQueries({ queryKey: [key, id] });
     }
   }, [changeSignal, id, queryClient]);
-  const evidenceQuery = useQuery({
-    queryKey: ["evidence", id, viewer],
-    queryFn: () => listEvidence(token, id),
-    enabled: Boolean(id && token),
-  });
   const metaQuery = useQuery({
     queryKey: ["meta"],
     queryFn: getMeta,
@@ -146,16 +147,6 @@ export function DealDetailClient({ dealId }: { dealId?: string } = {}) {
     queryKey: ["funding", id, viewer],
     queryFn: () => getFundingInstructions(token, id),
     enabled: Boolean(token && dealQuery.data?.escrow_address),
-  });
-  const sellerReputationQuery = useQuery({
-    queryKey: ["reputation", dealQuery.data?.seller_pubkey],
-    queryFn: () => getReputation(dealQuery.data!.seller_pubkey),
-    enabled: Boolean(dealQuery.data?.seller_pubkey),
-  });
-  const buyerReputationQuery = useQuery({
-    queryKey: ["reputation", dealQuery.data?.buyer_pubkey],
-    queryFn: () => getReputation(dealQuery.data!.buyer_pubkey),
-    enabled: Boolean(dealQuery.data?.buyer_pubkey),
   });
   const settlementQuery = useQuery({
     // Keyed on the current PSBT so signature counts always describe the PSBT on screen.
@@ -171,35 +162,6 @@ export function DealDetailClient({ dealId }: { dealId?: string } = {}) {
     await queryClient.invalidateQueries({ queryKey: ["events", id] });
     await queryClient.invalidateQueries({ queryKey: ["settlement", id] });
     await queryClient.invalidateQueries({ queryKey: ["funding", id] });
-  }
-
-  async function onDownloadEvidence(item: Evidence) {
-    setEvidenceDownloadError(null);
-    const current = loadSession();
-    if (!current?.token) {
-      setEvidenceDownloadError("Sign in first (Sign in page).");
-      return;
-    }
-    setDownloadingEvidenceId(item.id);
-    try {
-      const blob = await downloadEvidenceContent(current.token, id, item.id);
-      await assertEvidenceIntegrity(blob, item.content_sha256);
-      saveBlobAsFile(blob, evidenceFileName(item));
-    } catch (err) {
-      setEvidenceDownloadError(err instanceof Error ? err.message : "evidence download failed");
-    } finally {
-      setDownloadingEvidenceId(null);
-    }
-  }
-
-  async function onCopyEscrowAddress(address: string) {
-    try {
-      await navigator.clipboard.writeText(address);
-      setEscrowCopyState("copied");
-    } catch {
-      setEscrowCopyState("failed");
-    }
-    setTimeout(() => setEscrowCopyState("idle"), 1500);
   }
 
   async function onExportReceipt() {
@@ -234,32 +196,6 @@ export function DealDetailClient({ dealId }: { dealId?: string } = {}) {
       setError(err instanceof Error ? err.message : "confirm failed");
     } finally {
       setSettlementBusy(false);
-    }
-  }
-
-  async function onSubmitEvidence() {
-    setError(null);
-    const session = loadSession();
-    if (!session?.token) {
-      setError("Sign in first (Sign in page).");
-      return;
-    }
-    if (!evidenceContent.trim()) {
-      setError("Evidence text is required.");
-      return;
-    }
-    setEvidenceBusy(true);
-    try {
-      await submitEvidence(session.token, id, {
-        kind: evidenceKind.trim() || "note",
-        content: evidenceContent.trim(),
-      });
-      setEvidenceContent("");
-      await queryClient.invalidateQueries({ queryKey: ["evidence", id] });
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "evidence submit failed");
-    } finally {
-      setEvidenceBusy(false);
     }
   }
 
@@ -642,22 +578,19 @@ export function DealDetailClient({ dealId }: { dealId?: string } = {}) {
   if (!token) {
     return (
       <Shell>
-        <div className="mx-auto flex w-full max-w-xl flex-col gap-3 animate-rise">
-          <p className="text-xs uppercase tracking-[0.18em] text-[var(--accent-soft)]">Deal</p>
-          <h1 className="font-[family-name:var(--font-display)] text-3xl sm:text-4xl">
-            {session ? "Your sign-in expired" : "Sign in to view this deal"}
-          </h1>
-          <p className="text-sm text-[var(--ink-muted)]">
-            {session
-              ? "Use Sign in again in the footer to pick up where you left off."
-              : "Only the seller, buyer, or mediator on this deal can open it."}
-          </p>
-          <a
-            href={`/onboarding?next=${encodeURIComponent(`/deals/${id}`)}`}
-            className="w-full rounded bg-[var(--accent)] px-4 py-2 text-center text-sm font-semibold text-[var(--bg-deep)] sm:w-fit"
-          >
+        <div className="mx-auto flex w-full max-w-xl flex-col gap-6 animate-rise">
+          <PageHeader
+            eyebrow="Deal"
+            title={session ? "Your sign-in expired" : "Sign in to view this deal"}
+            description={
+              session
+                ? "Use Sign in again in the footer to pick up where you left off."
+                : "Only the seller, buyer, or mediator on this deal can open it."
+            }
+          />
+          <ButtonLink href={`/onboarding?next=${encodeURIComponent(`/deals/${id}`)}`} className="w-full sm:w-fit">
             Sign in
-          </a>
+          </ButtonLink>
         </div>
       </Shell>
     );
@@ -668,266 +601,120 @@ export function DealDetailClient({ dealId }: { dealId?: string } = {}) {
   if (dealAccessError?.status === 403 || dealAccessError?.status === 404) {
     return (
       <Shell>
-        <div className="mx-auto flex w-full max-w-xl flex-col gap-3 animate-rise">
-          <p className="text-xs uppercase tracking-[0.18em] text-[var(--accent-soft)]">Deal</p>
-          <h1 className="font-[family-name:var(--font-display)] text-3xl sm:text-4xl">
-            {dealAccessError.status === 403 ? "Not a party to this deal" : "Deal not found"}
-          </h1>
-          <p className="text-sm text-[var(--ink-muted)]">
-            {dealAccessError.status === 403
-              ? "The signed-in identity is not the seller, buyer, or mediator here. Switch to the right identity in the footer."
-              : "Check the deal link and try again."}
-          </p>
+        <div className="mx-auto flex w-full max-w-xl flex-col gap-6 animate-rise">
+          <PageHeader
+            eyebrow="Deal"
+            title={dealAccessError.status === 403 ? "Not a party to this deal" : "Deal not found"}
+            description={
+              dealAccessError.status === 403
+                ? "The signed-in identity is not the seller, buyer, or mediator here. Switch to the right identity in the footer."
+                : "Check the deal link and try again."
+            }
+          />
+          <ButtonLink href="/deals" variant="secondary" className="w-full sm:w-fit">
+            Back to my deals
+          </ButtonLink>
         </div>
       </Shell>
     );
   }
 
-  const funding: FundingInstructions | undefined = fundingQuery.data;
+  const status: string = String(deal?.status ?? "");
+  const disputeBlocked: string | null =
+    actionBlockedReason("open_dispute", status, participantRole, Boolean(deal?.settlement_txid || deal?.current_psbt)) ??
+    (disputeReason.trim() ? null : "Enter a dispute reason first.");
 
   return (
     <Shell>
-      <div className="mx-auto grid w-full max-w-5xl gap-10 lg:grid-cols-[1.2fr_0.8fr]">
+      <div className="mx-auto grid w-full max-w-6xl gap-6 lg:grid-cols-[minmax(0,1fr)_22rem] lg:gap-8">
         <section className="flex min-w-0 flex-col gap-6 animate-rise">
           <NetworkBanner network={deal?.network} />
-          <div className="flex flex-col gap-2">
-            <p className="text-xs uppercase tracking-[0.18em] text-[var(--accent-soft)]">Deal</p>
-            <h1 className="break-words font-[family-name:var(--font-display)] text-3xl sm:text-4xl">
-              {deal?.title ?? "Loading…"}
-            </h1>
-          </div>
-          {deal ? <DealLifecycleGuide deal={deal} role={participantRole} sellerSigned={sellerSigned} buyerSigned={buyerSigned} validSignatures={settlementQuery.data?.valid_signatures ?? 0} disputeResolved={Boolean(disputeDecision)} /> : null}
-          {session?.token && !hasSigningCapability && isParty ? (
-            <UnlockSigningKey pubkey={session.pubkey} />
-          ) : null}
+          <PageHeader
+            eyebrow="Deal"
+            title={deal?.title ?? "Loading…"}
+            actions={deal ? <StatusBadge status={deal.status} className="text-sm" /> : null}
+          />
           {deal ? (
-            <DataFreshness updatedAt={dealQuery.dataUpdatedAt} fetching={dealQuery.isFetching} onRefresh={() => void refresh()} />
+            <DataFreshness
+              updatedAt={dealQuery.dataUpdatedAt}
+              fetching={dealQuery.isFetching}
+              onRefresh={() => void refresh()}
+            />
           ) : null}
           {dealQuery.isError && !dealAccessError ? (
-            <p className="text-sm text-[var(--danger)]">
-              {dealQuery.error instanceof Error ? dealQuery.error.message : "Could not load this deal."}
-            </p>
+            <Alert tone="danger">{errorMessage(dealQuery.error, "Could not load this deal.")}</Alert>
           ) : null}
-          {deal ? (
-            <div className="flex flex-col gap-2 text-sm text-[var(--ink-muted)]">
-              <p>
-                Status: <span className="text-[var(--ok)]">{deal.status}</span>
-              </p>
-              {agreement ? (
-                <p>
-                  Your role in this deal: {participantRole === "other" ? "not a participant" : participantRole}
-                </p>
-              ) : null}
-              <p>
-                Settlement:{" "}
-                <span className="break-all text-[var(--accent-soft)]">{deal.settlement_model}</span>
-              </p>
-              <p>
-                Network:{" "}
-                <span className="network-badge text-[var(--accent-soft)]">{deal.network}</span>
-              </p>
-              <p>
-                Amount: {deal.amount_sats.toLocaleString()} sats ({deal.currency})
-              </p>
-              <p className="text-xs">
-                Seller history:{" "}
-                {sellerReputationQuery.data
-                  ? `${sellerReputationQuery.data.settled} settled · ${sellerReputationQuery.data.disputed} disputed`
-                  : "…"}
-                {" · "}Buyer history:{" "}
-                {buyerReputationQuery.data
-                  ? `${buyerReputationQuery.data.settled} settled · ${buyerReputationQuery.data.disputed} disputed`
-                  : "…"}
-              </p>
-              {deal.funding_txid ? (
-                <p className="break-all font-mono text-xs">Funding tx: {deal.funding_txid}</p>
-              ) : null}
-              {deal.settlement_txid ? (
-                <p className="break-all font-mono text-xs">Settlement tx: {deal.settlement_txid}</p>
-              ) : null}
-              <p className="break-all font-mono text-[10px] opacity-70">id: {deal.id}</p>
-              <p>
-                <Link href={`/deals/${deal.id}/checkout`} className="underline">
-                  Checkout view
-                </Link>
-              </p>
+          {!deal && dealQuery.isPending ? (
+            <div className="flex flex-col gap-4" aria-busy="true">
+              <Skeleton className="h-40 w-full rounded-2xl" />
+              <Skeleton className="h-64 w-full rounded-2xl" />
             </div>
           ) : null}
 
-          {agreement ? (
-            <div className="flex flex-col gap-3 rounded border border-[var(--line)] bg-[var(--bg-lift)]/40 p-4">
-              <div className="flex flex-col gap-1">
-                <h2 className="font-[family-name:var(--font-display)] text-xl">Agreement</h2>
-                <p className="text-xs text-[var(--ink-muted)]">
-                  Buyer and seller must both sign the same canonical bytes before funding.
-                </p>
-              </div>
-              {agreementVerification?.valid ? (
-                <dl className="grid grid-cols-1 gap-2 text-sm sm:grid-cols-2">
-                  <div className="flex flex-col gap-0.5 sm:col-span-2">
-                    <dt className="text-xs text-[var(--ink-muted)]">Title</dt>
-                    <dd className="break-words">{agreementVerification.agreement.title}</dd>
-                  </div>
-                  {agreementVerification.agreement.description ? (
-                    <div className="flex flex-col gap-0.5 sm:col-span-2">
-                      <dt className="text-xs text-[var(--ink-muted)]">Description</dt>
-                      <dd className="whitespace-pre-wrap break-words">
-                        {agreementVerification.agreement.description}
-                      </dd>
-                    </div>
+          {deal ? (
+            <Card>
+              <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+                <Amount sats={deal.amount_sats} size="lg" />
+                <div className="flex flex-wrap gap-2">
+                  <Badge tone="violet">{deal.network}</Badge>
+                  {agreement ? (
+                    <Badge tone="brand">you: {participantRole === "other" ? "not a participant" : participantRole}</Badge>
                   ) : null}
-                  <AgreementTerm label="Amount">
-                    {agreementVerification.agreement.amount_sats.toLocaleString()} sats
-                  </AgreementTerm>
-                  <AgreementTerm label="Currency">{agreementVerification.agreement.currency}</AgreementTerm>
-                  <AgreementTerm label="Seller public key" mono>
-                    {agreementVerification.agreement.seller_pubkey}
-                  </AgreementTerm>
-                  <AgreementTerm label="Buyer public key" mono>
-                    {agreementVerification.agreement.buyer_pubkey}
-                  </AgreementTerm>
-                  <AgreementTerm label="Mediator public key" mono>
-                    {agreementVerification.agreement.mediator_pubkey}
-                  </AgreementTerm>
-                  <AgreementTerm label="Seller payout address" mono>
-                    {agreementVerification.agreement.seller_payout_address}
-                  </AgreementTerm>
-                  <AgreementTerm label="Buyer refund address" mono>
-                    {agreementVerification.agreement.buyer_refund_address}
-                  </AgreementTerm>
-                  <AgreementTerm label="Delivery deadline">
-                    {agreementVerification.agreement.delivery_deadline}
-                  </AgreementTerm>
-                  <AgreementTerm label="Acceptance window">
-                    {agreementVerification.agreement.acceptance_window_hours} hours
-                  </AgreementTerm>
-                  <AgreementTerm label="Settlement model">
-                    {agreementVerification.agreement.settlement_model}
-                  </AgreementTerm>
-                  <AgreementTerm label="Network">{agreementVerification.agreement.network}</AgreementTerm>
-                  <AgreementTerm label="Agreement version">
-                    {agreementVerification.agreement.version}
-                  </AgreementTerm>
-                  <AgreementTerm label="Created at">
-                    {agreementVerification.agreement.created_at}
-                  </AgreementTerm>
-                  <div className="flex flex-col gap-0.5 sm:col-span-2">
-                    <dt className="text-xs text-[var(--ink-muted)]">Dispute eligibility</dt>
-                    <dd className="text-xs text-[var(--ink-muted)]">
-                      A party may open a dispute while funded, shipped, or accepted, before a
-                      settlement proposal is made. This is protocol policy, not an agreement deadline.
-                    </dd>
-                  </div>
-                </dl>
-              ) : agreementVerification ? (
-                <p role="alert" className="text-sm text-[var(--danger)]">
-                  Agreement verification failed: {agreementVerification.error} Signing is disabled.
-                </p>
-              ) : (
-                <p className="text-sm text-[var(--ink-muted)]">Verifying canonical agreement…</p>
-              )}
-              <ul className="flex flex-col gap-1 text-sm">
-                <li>
-                  Seller:{" "}
-                  <span className={sellerSigned ? "text-[var(--ok)]" : "text-[var(--ink-muted)]"}>
-                    {sellerSigned ? "signed" : "waiting"}
-                  </span>
-                </li>
-                <li>
-                  Buyer:{" "}
-                  <span className={buyerSigned ? "text-[var(--ok)]" : "text-[var(--ink-muted)]"}>
-                    {buyerSigned ? "signed" : "waiting"}
-                  </span>
-                </li>
-              </ul>
-              <p className="break-all font-mono text-[10px] text-[var(--ink-muted)]">
-                verified sha256 · {agreementVerification?.valid ? agreementVerification.digest : "not verified"}
-              </p>
-              {deal?.status === "draft" ? (
-                <button
-                  type="button"
-                  disabled={!canSign || signing}
-                  onClick={onSignAgreement}
-                  className="w-full rounded bg-[var(--accent)] px-4 py-2 text-sm font-semibold text-[var(--bg-deep)] disabled:opacity-40 sm:w-fit"
-                >
-                  {signing
-                    ? "Signing…"
-                    : alreadySigned
-                      ? "You already signed"
-                      : "Sign agreement"}
-                </button>
-              ) : (
-                <p className="text-sm text-[var(--ok)]">Agreement complete ({deal?.status}).</p>
-              )}
-            </div>
+                </div>
+              </div>
+              <DataList
+                items={[
+                  { label: "Settlement", value: <span className="break-all">{deal.settlement_model}</span> },
+                  { label: "Currency", value: deal.currency },
+                  ...(deal.funding_txid
+                    ? [{ label: "Funding tx", value: <HashValue value={deal.funding_txid} />, wide: true }]
+                    : []),
+                  ...(deal.settlement_txid
+                    ? [{ label: "Settlement tx", value: <HashValue value={deal.settlement_txid} />, wide: true }]
+                    : []),
+                  { label: "Deal id", value: <HashValue value={deal.id} head={12} />, wide: true },
+                ]}
+              />
+              <div className="flex flex-col gap-3 border-t border-line pt-4 sm:flex-row sm:items-center sm:justify-between">
+                <PartyReputation sellerPubkey={deal.seller_pubkey} buyerPubkey={deal.buyer_pubkey} />
+                <ButtonLink href={`/deals/${deal.id}/checkout`} variant="link" size="sm" className="w-fit">
+                  Checkout view
+                </ButtonLink>
+              </div>
+            </Card>
+          ) : null}
+
+          {deal ? (
+            <DealLifecycleGuide
+              deal={deal}
+              role={participantRole}
+              sellerSigned={sellerSigned}
+              buyerSigned={buyerSigned}
+              validSignatures={settlementQuery.data?.valid_signatures ?? 0}
+              disputeResolved={Boolean(disputeDecision)}
+            />
+          ) : null}
+          {session?.token && !hasSigningCapability && isParty ? <UnlockSigningKey pubkey={session.pubkey} /> : null}
+
+          {agreement ? (
+            <AgreementCard
+              verification={agreementVerification}
+              sellerSigned={sellerSigned}
+              buyerSigned={buyerSigned}
+              status={status}
+              canSign={canSign}
+              signing={signing}
+              alreadySigned={alreadySigned}
+              onSign={() => void onSignAgreement()}
+            />
           ) : null}
 
           {deal?.escrow_address ? (
-            <div className="flex flex-col gap-3 rounded border border-[var(--line)] bg-[var(--bg-lift)]/40 p-4">
-              <div className="flex flex-col gap-1">
-                <h2 className="font-[family-name:var(--font-display)] text-xl">Funding instructions</h2>
-                <p className="text-xs text-[var(--ink-muted)]">
-                  Send exactly the expected amount to the 2-of-3 escrow address, then use Verify funding.
-                </p>
-              </div>
-              <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
-                <p className="min-w-0 flex-1 break-all rounded border border-[var(--line)] bg-[var(--bg-deep)]/60 px-3 py-2 font-mono text-xs text-[var(--ink)]">
-                  {funding?.address ?? deal.escrow_address}
-                </p>
-                <button
-                  type="button"
-                  onClick={() => onCopyEscrowAddress(funding?.address ?? deal.escrow_address!)}
-                  className="rounded border border-[var(--line)] px-3 py-2 text-xs hover:border-[var(--accent)]"
-                >
-                  {escrowCopyState === "copied"
-                    ? "Copied"
-                    : escrowCopyState === "failed"
-                      ? "Copy failed"
-                      : "Copy address"}
-                </button>
-              </div>
-              {funding ? (
-                <dl className="grid grid-cols-1 gap-3 text-sm sm:grid-cols-3">
-                  <div className="flex flex-col gap-0.5">
-                    <dt className="text-xs text-[var(--ink-muted)]">Expected amount</dt>
-                    <dd>
-                      {funding.expected_amount_sats.toLocaleString()} sats
-                      <span className="block font-mono text-xs text-[var(--ink-muted)]">
-                        {satsToBtc(funding.expected_amount_sats)} BTC
-                      </span>
-                    </dd>
-                  </div>
-                  <div className="flex flex-col gap-0.5">
-                    <dt className="text-xs text-[var(--ink-muted)]">Confirmations needed</dt>
-                    <dd>{funding.required_confirmations}</dd>
-                  </div>
-                  <div className="flex flex-col gap-0.5">
-                    <dt className="text-xs text-[var(--ink-muted)]">Network</dt>
-                    <dd className="network-badge text-[var(--accent-soft)]">{funding.network}</dd>
-                  </div>
-                </dl>
-              ) : null}
-              {fundingQuery.isError ? (
-                <p className="text-sm text-[var(--danger)]">
-                  {fundingQuery.error instanceof Error
-                    ? fundingQuery.error.message
-                    : "Could not load funding instructions."}
-                </p>
-              ) : null}
-              {funding ? (
-                <details className="text-xs text-[var(--ink-muted)]">
-                  <summary className="cursor-pointer">Technical details</summary>
-                  <div className="flex flex-col gap-2 pt-2">
-                    <p className="break-all font-mono text-[10px]">
-                      scriptPubKey · {funding.script_pubkey_hex}
-                    </p>
-                    <p className="break-all font-mono text-[10px]">
-                      witness script · {funding.witness_script_hex}
-                    </p>
-                  </div>
-                </details>
-              ) : null}
-            </div>
+            <FundingCard
+              escrowAddress={deal.escrow_address}
+              funding={fundingQuery.data}
+              fundingError={fundingQuery.isError ? errorMessage(fundingQuery.error, "Could not load funding instructions.") : null}
+            />
           ) : null}
 
           {deal ? (
@@ -967,247 +754,84 @@ export function DealDetailClient({ dealId }: { dealId?: string } = {}) {
             />
           ) : null}
 
-          <div className="flex flex-col gap-3 rounded border border-[var(--line)] bg-[var(--bg-lift)]/40 p-4">
-            <div className="flex flex-col gap-1">
-              <h2 className="font-[family-name:var(--font-display)] text-xl">Evidence</h2>
-              <p className="text-xs text-[var(--ink-muted)]">
-                Every item is stored with a SHA-256 hash. Download to inspect the original content.
-              </p>
+          <DealEvidencePanel
+            token={token}
+            viewer={viewer}
+            dealId={id}
+            canSubmit={canParticipantAct("submit_evidence", status, participantRole)}
+          />
+
+          <Card tone="solid">
+            <CardHeader title="Actions" description="Buttons explain why they are unavailable." />
+            {error ? <Alert tone="danger">{error}</Alert> : null}
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
+              <ActionButton
+                label="Prepare funding"
+                icon={<Wallet className="size-3.5" />}
+                reason={actionBlockedReason("prepare_funding", status, participantRole)}
+                disabled={actionBusy || !canFund}
+                onClick={() => withSession((t) => prepareFunding(t, id))}
+              />
+              <ActionButton
+                label="Verify funding"
+                icon={<CheckCircle2 className="size-3.5" />}
+                reason={actionBlockedReason("verify_funding", status, participantRole)}
+                disabled={actionBusy || deal?.status !== "awaiting_payment"}
+                onClick={() => withSession((t) => verifyFunding(t, id))}
+              />
+              <ActionButton
+                label="Mark shipped"
+                icon={<Truck className="size-3.5" />}
+                reason={actionBlockedReason("ship", status, participantRole)}
+                disabled={actionBusy || !canParticipantAct("ship", status, participantRole)}
+                onClick={() => withSession((t) => transitionDeal(t, id, "shipped" as DealStatus))}
+              />
+              <ActionButton
+                label="Accept delivery"
+                icon={<PackageCheck className="size-3.5" />}
+                reason={actionBlockedReason("accept", status, participantRole)}
+                disabled={actionBusy || !canParticipantAct("accept", status, participantRole)}
+                onClick={() => withSession((t) => transitionDeal(t, id, "accepted" as DealStatus))}
+              />
+              <ActionButton
+                label="Verify receipt"
+                icon={<FileCheck2 className="size-3.5" />}
+                onClick={() => void onExportReceipt()}
+              />
             </div>
-            <ul className="flex flex-col gap-2 text-sm">
-              {(evidenceQuery.data ?? []).map((item) => (
-                <li
-                  key={item.id}
-                  className="flex flex-col gap-2 rounded border border-[var(--line)] p-3"
-                >
-                  <div className="flex flex-wrap items-center gap-2">
-                    <p className="text-xs uppercase tracking-[0.1em] text-[var(--accent-soft)]">
-                      {item.kind}
-                    </p>
-                    <span className="rounded border border-[var(--line)] px-1.5 py-0.5 text-[10px] text-[var(--ink-muted)]">
-                      {item.object_key ? "File" : "Text"}
-                    </span>
-                  </div>
-                  <p className="whitespace-pre-wrap break-words">{item.content}</p>
-                  <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-                    <p className="break-all text-[10px] text-[var(--ink-muted)]">
-                      {item.submitted_by.slice(0, 10)}… · {new Date(item.created_at).toLocaleString()}
-                      {item.content_sha256 ? (
-                        <span title={item.content_sha256} className="font-mono">
-                          {" · sha256 "}
-                          {item.content_sha256.slice(0, 12)}…
-                        </span>
-                      ) : null}
-                    </p>
-                    <button
-                      type="button"
-                      disabled={downloadingEvidenceId === item.id}
-                      onClick={() => onDownloadEvidence(item)}
-                      className="rounded border border-[var(--line)] px-3 py-1.5 text-xs hover:border-[var(--accent)] disabled:opacity-40"
-                    >
-                      {downloadingEvidenceId === item.id ? "Downloading…" : "Download"}
-                    </button>
-                  </div>
-                </li>
-              ))}
-              {evidenceQuery.isSuccess && !evidenceQuery.data?.length ? (
-                <li className="text-xs text-[var(--ink-muted)]">No evidence submitted yet.</li>
-              ) : null}
-            </ul>
-            {evidenceDownloadError ? (
-              <p className="text-sm text-[var(--danger)]">{evidenceDownloadError}</p>
-            ) : null}
-            {canParticipantAct("submit_evidence", String(deal?.status ?? ""), participantRole) ? (
-              <div className="flex flex-col gap-2">
-                <Input label="Kind" value={evidenceKind} onChange={(e) => setEvidenceKind(e.target.value)} />
-                <Textarea
-                  label="Evidence"
-                  value={evidenceContent}
-                  onChange={(e) => setEvidenceContent(e.target.value)}
-                  placeholder="Describe what happened, link a photo host, etc."
+            {canOpenDispute ? (
+              <div className="flex flex-col gap-3 rounded-2xl border border-danger/30 bg-danger/[0.05] p-4">
+                <Input
+                  label="Dispute reason"
+                  value={disputeReason}
+                  onChange={(event) => setDisputeReason(event.target.value)}
                 />
-                <button
-                  type="button"
-                  disabled={evidenceBusy || !evidenceContent.trim()}
-                  onClick={onSubmitEvidence}
-                  className="w-full rounded bg-[var(--accent)] px-4 py-2 text-sm font-semibold text-[var(--bg-deep)] disabled:opacity-40 sm:w-fit"
-                >
-                  {evidenceBusy ? "Submitting…" : "Submit evidence"}
-                </button>
+                <div className="sm:max-w-56">
+                  <ActionButton
+                    label="Open dispute"
+                    variant="danger"
+                    icon={<Scale className="size-3.5" />}
+                    reason={disputeBlocked}
+                    disabled={actionBusy || !canOpenDispute || !disputeReason.trim()}
+                    onClick={() => withSession((t) => openDispute(t, id, disputeReason.trim()))}
+                  />
+                </div>
               </div>
             ) : null}
-          </div>
-
-          {error ? <p className="text-sm text-[var(--danger)]">{error}</p> : null}
-
-          <div className="grid grid-cols-1 gap-2 sm:flex sm:flex-wrap">
-            <ActionButton
-              label="Prepare funding"
-              reason={actionBlockedReason("prepare_funding", String(deal?.status ?? ""), participantRole)}
-              disabled={actionBusy || !canFund}
-              onClick={() => withSession((t) => prepareFunding(t, id))}
-            />
-            <ActionButton
-              label="Verify funding"
-              reason={actionBlockedReason("verify_funding", String(deal?.status ?? ""), participantRole)}
-              disabled={actionBusy || deal?.status !== "awaiting_payment"}
-              onClick={() => withSession((t) => verifyFunding(t, id))}
-            />
-            <ActionButton
-              label="Mark shipped"
-              reason={actionBlockedReason("ship", String(deal?.status ?? ""), participantRole)}
-              disabled={actionBusy || !canParticipantAct("ship", String(deal?.status ?? ""), participantRole)}
-              onClick={() => withSession((t) => transitionDeal(t, id, "shipped" as DealStatus))}
-            />
-            <ActionButton
-              label="Accept delivery"
-              reason={actionBlockedReason("accept", String(deal?.status ?? ""), participantRole)}
-              disabled={actionBusy || !canParticipantAct("accept", String(deal?.status ?? ""), participantRole)}
-              onClick={() => withSession((t) => transitionDeal(t, id, "accepted" as DealStatus))}
-            />
-            {canOpenDispute ? (
-              <Input
-                label="Dispute reason"
-                value={disputeReason}
-                onChange={(event) => setDisputeReason(event.target.value)}
-              />
-            ) : null}
-            <ActionButton
-              label="Open dispute"
-              reason={
-                actionBlockedReason(
-                  "open_dispute",
-                  String(deal?.status ?? ""),
-                  participantRole,
-                  Boolean(deal?.settlement_txid || deal?.current_psbt),
-                ) ?? (disputeReason.trim() ? null : "Enter a dispute reason first.")
-              }
-              disabled={actionBusy || !canOpenDispute || !disputeReason.trim()}
-              onClick={() =>
-                withSession((t) => openDispute(t, id, disputeReason.trim()))
-              }
-            />
-            <ActionButton label="Verify receipt" onClick={onExportReceipt} />
-          </div>
+          </Card>
 
           {receiptJson && receiptViewer === viewer ? (
-            <div className="flex flex-col gap-3 rounded border border-[var(--line)] bg-[var(--bg-lift)]/40 p-4">
-              {receiptVerification?.valid ? (
-                <div role="status" className="flex flex-col gap-2 text-sm">
-                  <p className="text-[var(--ok)]">Receipt consistency checks passed.</p>
-                  <ul className="list-disc pl-5 text-xs text-[var(--ink-muted)]">
-                    {receiptVerification.checks.map((check) => <li key={check}>{check}</li>)}
-                  </ul>
-                  <p className="text-xs font-medium text-[var(--warn)]">
-                    This does not independently prove current blockchain confirmation.
-                  </p>
-                  <ul className="list-disc pl-5 text-xs text-[var(--ink-muted)]">
-                    {receiptVerification.limitations.map((limitation) => (
-                      <li key={limitation}>{limitation}</li>
-                    ))}
-                  </ul>
-                </div>
-              ) : (
-                <p role="alert" className="text-sm text-[var(--danger)]">
-                  Receipt verification failed: {receiptVerification?.error ?? "No result."}
-                </p>
-              )}
-              <button
-                type="button"
-                onClick={() =>
-                  saveBlobAsFile(
-                    new Blob([receiptJson], { type: "application/json" }),
-                    `receipt-${id.slice(0, 8)}.json`,
-                  )
-                }
-                className="w-fit rounded border border-[var(--line)] px-3 py-2 text-xs hover:border-[var(--accent)]"
-              >
-                Download receipt JSON
-              </button>
-              <details>
-                <summary className="cursor-pointer text-xs text-[var(--ink-muted)]">Receipt JSON</summary>
-                <pre className="max-h-80 overflow-auto break-all rounded border border-[var(--line)] bg-[var(--bg-deep)]/80 p-3 text-[11px] text-[var(--ink-muted)]">
-                  {receiptJson}
-                </pre>
-              </details>
-            </div>
+            <ReceiptPanel dealId={id} receiptJson={receiptJson} verification={receiptVerification} />
           ) : null}
         </section>
 
-        <section className="flex min-w-0 flex-col gap-4 animate-rise-delay">
-          <h2 className="font-[family-name:var(--font-display)] text-2xl">Timeline</h2>
-          <ol className="flex flex-col gap-3 border-l border-[var(--line)] pl-4">
-            {(eventsQuery.data ?? []).map((event) => (
-              <li key={event.sequence} className="flex flex-col gap-1 text-sm">
-                <p className="break-words text-[var(--accent-soft)]">
-                  #{event.sequence} · {String(event.kind)}
-                </p>
-                <p className="text-xs text-[var(--ink-muted)]">
-                  {new Date(event.created_at).toLocaleString()}
-                </p>
-                <p className="break-all font-mono text-[10px] opacity-60">
-                  {event.actor_pubkey.slice(0, 16)}…
-                </p>
-              </li>
-            ))}
-            {!eventsQuery.data?.length ? (
-              <li className="text-sm text-[var(--ink-muted)]">No events yet.</li>
-            ) : null}
-          </ol>
-        </section>
+        <aside className="min-w-0 animate-rise-delay">
+          <DealTimeline token={token} viewer={viewer} dealId={id} />
+        </aside>
       </div>
     </Shell>
   );
 }
-
-function AgreementTerm({
-  label,
-  children,
-  mono = false,
-}: {
-  label: string;
-  children: React.ReactNode;
-  mono?: boolean;
-}) {
-  return (
-    <div className="flex min-w-0 flex-col gap-0.5">
-      <dt className="text-xs text-[var(--ink-muted)]">{label}</dt>
-      <dd className={`${mono ? "break-all font-mono text-xs" : "break-words"}`}>{children}</dd>
-    </div>
-  );
-}
-
-const EVIDENCE_EXTENSIONS: Record<string, string> = {
-  "text/plain": "txt",
-  "application/json": "json",
-  "application/pdf": "pdf",
-  "image/png": "png",
-  "image/jpeg": "jpg",
-  "image/webp": "webp",
-  "image/gif": "gif",
-};
-
-function evidenceFileName(item: Evidence): string {
-  const contentType: string = item.object_key ? (item.content_type ?? "") : "text/plain";
-  const extension: string = EVIDENCE_EXTENSIONS[contentType.split(";")[0].trim()] ?? "bin";
-  return `evidence-${item.id.slice(0, 8)}.${extension}`;
-}
-
-function saveBlobAsFile(blob: Blob, fileName: string): void {
-  const url: string = URL.createObjectURL(blob);
-  const anchor: HTMLAnchorElement = document.createElement("a");
-  anchor.href = url;
-  anchor.download = fileName;
-  document.body.appendChild(anchor);
-  anchor.click();
-  anchor.remove();
-  setTimeout(() => URL.revokeObjectURL(url), 1000);
-}
-
-function satsToBtc(sats: number): string {
-  return (sats / 100_000_000).toFixed(8);
-}
-
 function latestSettlementPurpose(events: DealEvent[] | undefined): string | null {
   if (!events?.length) {
     return null;
@@ -1236,401 +860,8 @@ function latestDisputeDecision(events: DealEvent[] | undefined): "release" | "re
   return null;
 }
 
-function SettlementPanel({
-  deal,
-  settlement,
-  canPropose,
-  isParty,
-  purpose,
-  setPurpose,
-  destination,
-  setDestination,
-  feeSats,
-  setFeeSats,
-  proposedPurpose,
-  psbtReview,
-  settlementPolicy,
-  authorizedDestination,
-  reviewed,
-  setReviewed,
-  declined,
-  setDeclined,
-  pastedPsbt,
-  setPastedPsbt,
-  confirmBlockHash,
-  setConfirmBlockHash,
-  busy,
-  hasLocalSecret,
-  onPropose,
-  onSignLocal,
-  onAttachPaste,
-  onFinalize,
-  onConfirm,
-}: {
-  deal: Deal;
-  settlement: SettlementProgress | null;
-  canPropose: boolean;
-  isParty: boolean;
-  purpose: SettlementPurpose;
-  setPurpose: (p: SettlementPurpose) => void;
-  destination: string;
-  setDestination: (v: string) => void;
-  feeSats: string;
-  setFeeSats: (v: string) => void;
-  proposedPurpose: string | null;
-  psbtReview: {
-    summary: ReturnType<typeof summarizePsbt> | null;
-    error: string | null;
-  } | null;
-  settlementPolicy: SettlementPsbtPolicy | null;
-  authorizedDestination: string | null;
-  reviewed: boolean;
-  setReviewed: (v: boolean) => void;
-  declined: boolean;
-  setDeclined: (v: boolean) => void;
-  pastedPsbt: string;
-  setPastedPsbt: (v: string) => void;
-  confirmBlockHash: string;
-  setConfirmBlockHash: (v: string) => void;
-  busy: boolean;
-  hasLocalSecret: boolean;
-  onPropose: () => void;
-  onSignLocal: () => void;
-  onAttachPaste: () => void;
-  onFinalize: () => void;
-  onConfirm: () => void;
-}) {
-  const hasPsbt = Boolean(deal.current_psbt);
-  const summary = psbtReview?.summary;
-  const canAct = isParty && hasPsbt && !deal.settlement_txid && !declined;
-  const requiredSignatures = settlement?.required_signatures ?? 2;
-  const validSignatures = settlement?.valid_signatures ?? summary?.partial_sigs_total ?? 0;
-  const phase = settlement?.phase ?? deal.settlement_phase;
-  const canCheckConfirmation =
-    isParty && Boolean(deal.settlement_txid) && phase !== "confirmed";
-
-  return (
-    <div className="flex flex-col gap-4 rounded border border-[var(--line)] bg-[var(--bg-lift)]/40 p-4">
-      <div className="flex flex-col gap-1">
-        <h2 className="font-[family-name:var(--font-display)] text-xl">Settlement PSBT</h2>
-        <p className="text-xs text-[var(--ink-muted)]">
-          Review outputs and fee before you sign. Keys never leave your browser; the API only
-          combines PSBT updates.
-        </p>
-      </div>
-
-      {canPropose && !hasPsbt ? (
-        <div className="flex flex-col gap-3">
-          <label className="flex flex-col gap-1 text-sm">
-            <span className="text-[var(--ink-muted)]">Purpose</span>
-            <select
-              className="rounded border border-[var(--line)] bg-[var(--bg-deep)]/60 px-3 py-2"
-              value={purpose}
-              onChange={(e) => setPurpose(e.target.value as SettlementPurpose)}
-            >
-              <option value="payout_seller">Payout seller</option>
-              <option value="refund_buyer">Refund buyer</option>
-            </select>
-          </label>
-          <Input
-            label="Destination address"
-            mono
-            value={destination}
-            onChange={(e) => setDestination(e.target.value)}
-            placeholder="bcrt1…"
-          />
-          <Input
-            label="Fee (sats)"
-            type="number"
-            min={200}
-            value={feeSats}
-            onChange={(e) => setFeeSats(e.target.value)}
-          />
-          <button
-            type="button"
-            disabled={busy}
-            onClick={onPropose}
-            className="w-full rounded bg-[var(--accent)] px-4 py-2 text-sm font-semibold text-[var(--bg-deep)] disabled:opacity-40 sm:w-fit"
-          >
-            {busy ? "Proposing…" : "Propose settlement"}
-          </button>
-        </div>
-      ) : null}
-
-      {!hasPsbt && !canPropose ? (
-        <p className="text-sm text-[var(--ink-muted)]">
-          {deal.settlement_txid
-            ? "Settlement already broadcast."
-            : "Fund the deal before proposing a settlement PSBT."}
-        </p>
-      ) : null}
-
-      {hasPsbt && summary ? (
-        <div className="flex flex-col gap-3 text-sm">
-          <p>
-            Purpose:{" "}
-            <span className="text-[var(--accent-soft)]">{purposeLabel(proposedPurpose)}</span>
-          </p>
-          <p className="rounded border border-[var(--accent)]/30 bg-[var(--accent)]/10 px-3 py-2 text-xs text-[var(--accent-soft)]">
-            This {proposedPurpose === "refund_buyer" ? "refunds the buyer" : "pays the seller"}.
-            The destination is checked against the signed agreement. Independently confirm the
-            address with the recipient before signing.
-          </p>
-          <p className="break-all font-mono text-xs text-[var(--ink)]">
-            Signed destination · {authorizedDestination ?? "unavailable"}
-          </p>
-          <p className="break-all font-mono text-[10px] text-[var(--ink-muted)]">
-            unsigned txid · {summary.unsigned_txid}
-          </p>
-          <div className="flex flex-col gap-1">
-            <p className="text-xs uppercase tracking-[0.14em] text-[var(--ink-muted)]">Inputs</p>
-            <ul className="flex flex-col gap-1">
-              {summary.inputs.map((input) => (
-                <li key={`${input.txid}:${input.vout}`} className="break-all font-mono text-[11px]">
-                  {input.txid}:{input.vout}
-                  {input.amount_sats != null
-                    ? ` · ${input.amount_sats.toLocaleString()} sats`
-                    : ""}
-                  {input.partial_sigs > 0 ? ` · ${input.partial_sigs} sig(s)` : ""}
-                </li>
-              ))}
-            </ul>
-          </div>
-          <div className="flex flex-col gap-1">
-            <p className="text-xs uppercase tracking-[0.14em] text-[var(--ink-muted)]">Outputs</p>
-            <ul className="flex flex-col gap-1">
-              {summary.outputs.map((output, idx) => (
-                <li key={`${output.script_hex}:${idx}`} className="break-all font-mono text-[11px]">
-                  {output.address ?? `script:${output.script_hex.slice(0, 20)}…`} ·{" "}
-                  {output.amount_sats.toLocaleString()} sats
-                </li>
-              ))}
-            </ul>
-          </div>
-          <p>
-            Fee:{" "}
-            <span className="text-[var(--ok)]">{summary.fee_sats.toLocaleString()} sats</span>
-            {" · "}
-            Partial sigs: {validSignatures}/{requiredSignatures} needed
-          </p>
-          <p>
-            Phase: <span className="text-[var(--accent-soft)]">{phase}</span>
-            {settlement ? ` · ${settlement.confirmations} confirmation(s)` : null}
-          </p>
-          {deal.funding_amount_sats != null && summary.outputs[0] ? (
-            <p className="text-xs text-[var(--ink-muted)]">
-              Check: funding {deal.funding_amount_sats.toLocaleString()} − fee{" "}
-              {summary.fee_sats.toLocaleString()} ={" "}
-              {(deal.funding_amount_sats - summary.fee_sats).toLocaleString()} (output{" "}
-              {summary.outputs[0].amount_sats.toLocaleString()})
-            </p>
-          ) : null}
-
-          {declined ? (
-            <p className="text-sm text-[var(--danger)]">
-              You declined to sign this PSBT. Do not attach a signature until a new proposal
-              matches what you expect.
-            </p>
-          ) : (
-            <>
-              <label className="flex items-start gap-2 text-sm">
-                <input
-                  type="checkbox"
-                  className="mt-1 shrink-0"
-                  checked={reviewed}
-                  onChange={(e) => setReviewed(e.target.checked)}
-                />
-                <span>
-                  I reviewed the purpose, destination, output amount, and fee. I understand
-                  signing moves escrow with 2-of-3.
-                </span>
-              </label>
-              <div className="grid grid-cols-1 gap-2 sm:flex sm:flex-wrap">
-                <button
-                  type="button"
-                  disabled={!canAct || !reviewed || busy || !hasLocalSecret || !settlementPolicy}
-                  onClick={onSignLocal}
-                  className="rounded bg-[var(--accent)] px-4 py-2 text-sm font-semibold text-[var(--bg-deep)] disabled:opacity-40"
-                >
-                  {busy ? "Signing…" : "Sign with local secret"}
-                </button>
-                <button
-                  type="button"
-                  disabled={!canAct || busy}
-                  onClick={() => setDeclined(true)}
-                  className="rounded border border-[var(--danger)]/50 px-4 py-2 text-sm text-[var(--danger)] disabled:opacity-40"
-                >
-                  Decline to sign
-                </button>
-                <button
-                  type="button"
-                  disabled={
-                    !isParty ||
-                    busy ||
-                    Boolean(deal.settlement_txid) ||
-                    validSignatures < requiredSignatures
-                  }
-                  onClick={onFinalize}
-                  title={
-                    validSignatures < requiredSignatures
-                      ? `Needs ${requiredSignatures} of 3 signatures before it can be finalized`
-                      : undefined
-                  }
-                  className="rounded border border-[var(--line)] px-4 py-2 text-sm disabled:opacity-40"
-                >
-                  Finalize / broadcast
-                </button>
-              </div>
-              {!deal.settlement_txid && validSignatures < requiredSignatures ? (
-                <p className="text-xs text-[var(--ink-muted)]">
-                  Finalize unlocks at {requiredSignatures} of 3 signatures ({validSignatures} so far).
-                  {!hasLocalSecret ? " Unlock your signing key above to add yours." : ""}
-                </p>
-              ) : null}
-              <label className="flex flex-col gap-1 text-sm">
-                <span className="text-[var(--ink-muted)]">Or paste a wallet-signed PSBT</span>
-                <textarea
-                  className="min-h-20 rounded border border-[var(--line)] bg-[var(--bg-deep)]/60 px-3 py-2 font-mono text-[10px]"
-                  value={pastedPsbt}
-                  onChange={(e) => setPastedPsbt(e.target.value)}
-                  placeholder="cHNidP…"
-                />
-              </label>
-              <button
-                type="button"
-                disabled={!canAct || !reviewed || busy || !pastedPsbt.trim() || !settlementPolicy}
-                onClick={onAttachPaste}
-                className="w-full rounded border border-[var(--line)] px-3 py-2 text-xs disabled:opacity-40 sm:w-fit"
-              >
-                Attach pasted PSBT
-              </button>
-            </>
-          )}
-          {declined ? (
-            <button
-              type="button"
-              className="w-fit text-xs text-[var(--accent-soft)] underline"
-              onClick={() => setDeclined(false)}
-            >
-              Reconsider
-            </button>
-          ) : null}
-          <details className="text-xs text-[var(--ink-muted)]">
-            <summary className="cursor-pointer">Raw PSBT</summary>
-            <pre className="max-h-40 whitespace-pre-wrap pt-2 overflow-auto break-all font-mono text-[10px]">
-              {deal.current_psbt}
-            </pre>
-          </details>
-        </div>
-      ) : null}
-
-      {hasPsbt && psbtReview?.error ? (
-        <p className="text-sm text-[var(--danger)]">PSBT decode failed: {psbtReview.error}</p>
-      ) : null}
-
-      {deal.settlement_txid ? (
-        <div className="flex flex-col gap-2 border-t border-[var(--line)] pt-4 text-sm">
-          <p className="break-all font-mono text-[10px] text-[var(--ink-muted)]">
-            settlement txid · {deal.settlement_txid}
-          </p>
-          <p>
-            Status: <span className="text-[var(--accent-soft)]">{phase}</span>
-            {" · "}
-            {(settlement?.confirmations ?? deal.settlement_confirmations)} confirmation(s)
-          </p>
-          {canCheckConfirmation ? (
-            <>
-              <Input
-                label="Block hash (only needed without Core txindex)"
-                mono
-                value={confirmBlockHash}
-                onChange={(e) => setConfirmBlockHash(e.target.value)}
-                placeholder="optional"
-              />
-              <button
-                type="button"
-                disabled={busy}
-                onClick={onConfirm}
-                className="w-full rounded border border-[var(--line)] px-4 py-2 text-sm disabled:opacity-40 sm:w-fit"
-              >
-                {busy ? "Checking…" : "Check confirmation"}
-              </button>
-            </>
-          ) : null}
-        </div>
-      ) : null}
-    </div>
-  );
-}
-
-function ActionButton({
-  label,
-  onClick,
-  disabled,
-  reason,
-}: {
-  label: string;
-  onClick: () => void;
-  disabled?: boolean;
-  /** Why the action is unavailable; shown as text under the button when it is disabled. */
-  reason?: string | null;
-}) {
-  const shownReason = disabled ? reason : null;
-  return (
-    <div className="flex flex-col gap-1 sm:max-w-44">
-      <button
-        type="button"
-        onClick={onClick}
-        disabled={disabled}
-        aria-describedby={shownReason ? `${label}-reason` : undefined}
-        className="rounded border border-[var(--line)] px-3 py-2 text-xs text-[var(--ink)] transition hover:border-[var(--accent)] disabled:cursor-not-allowed disabled:opacity-35"
-      >
-        {label}
-      </button>
-      {shownReason ? (
-        <span id={`${label}-reason`} className="text-[10px] leading-snug text-[var(--ink-muted)]">
-          {shownReason}
-        </span>
-      ) : null}
-    </div>
-  );
-}
-
 /** Short, stable fingerprint of a PSBT for query keys (avoids keying on the whole base64). */
 function psbtFingerprint(psbt: string | null | undefined): string {
   if (!psbt) return "none";
   return `${psbt.length}:${psbt.slice(-24)}`;
-}
-
-/** "Updated 3s ago" plus a manual refresh, so it is clear the page is current. */
-function DataFreshness({
-  updatedAt,
-  fetching,
-  onRefresh,
-}: {
-  updatedAt: number;
-  fetching: boolean;
-  onRefresh: () => void;
-}) {
-  const [now, setNow] = useState(() => Date.now());
-  useEffect(() => {
-    const timer = setInterval(() => setNow(Date.now()), 1000);
-    return () => clearInterval(timer);
-  }, []);
-  const seconds = updatedAt ? Math.max(0, Math.round((now - updatedAt) / 1000)) : null;
-  return (
-    <div className="flex items-center gap-3 text-xs text-[var(--ink-muted)]">
-      <span aria-live="polite">
-        {fetching ? "Checking for updates…" : seconds === null ? "Not loaded yet" : `Updated ${seconds}s ago · auto-refreshes every 5s`}
-      </span>
-      <button
-        type="button"
-        onClick={onRefresh}
-        disabled={fetching}
-        className="underline decoration-[var(--line)] underline-offset-4 hover:text-[var(--ink)] disabled:opacity-50"
-      >
-        Refresh
-      </button>
-    </div>
-  );
 }

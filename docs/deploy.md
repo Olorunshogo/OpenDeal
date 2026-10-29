@@ -27,6 +27,27 @@ Frontend:
 | `NEXT_PUBLIC_SITE_URL` | Canonical site URL for metadata |
 | `NEXT_PUBLIC_SENTRY_DSN` | Optional browser Sentry |
 
+## Frontend on Vercel
+
+The Next.js app in `frontend/` deploys to Vercel as is. `frontend/vercel.json` pins the framework, a frozen-lockfile install, and the build command.
+
+1. **Import the repository** in Vercel and set **Root Directory** to `frontend`. The repository root is not a Next.js app.
+2. **Node.js version:** 24.x (also pinned by `engines` in `frontend/package.json`).
+3. **pnpm:** `frontend/package.json` declares `packageManager: pnpm@12.16.1`. Add the environment variable `ENABLE_EXPERIMENTAL_COREPACK=1` so Vercel uses exactly that version.
+4. **Environment variables** (Production and Preview). `NEXT_PUBLIC_*` values are baked in at build time, so redeploy after changing them:
+
+   | Variable | Example | Required |
+   |---|---|---|
+   | `NEXT_PUBLIC_API_URL` | `https://api.opendeal.example` | Yes. Without it the app falls back to `http://localhost:8080` |
+   | `NEXT_PUBLIC_SITE_URL` | `https://opendeal.example` | Yes, for canonical and Open Graph URLs |
+   | `NEXT_PUBLIC_BITCOIN_NETWORK` | `testnet` | Optional; the UI also reads `/api/v1/meta` |
+   | `NEXT_PUBLIC_SENTRY_DSN` | | Optional |
+   | `ENABLE_EXPERIMENTAL_COREPACK` | `1` | Recommended |
+
+5. **API side:** the Rust API is deployed separately (it needs Postgres and bitcoind). Add the Vercel domain, and any preview domains you use, to `CORS_ALLOWED_ORIGINS` in the API environment, or browser requests are blocked.
+
+`vgpu` (the WebGPU engine behind the home page background) depends on `webgpu`, which ships native Node binaries. They are never bundled for the browser, and their build scripts are disabled in `frontend/pnpm-workspace.yaml`, so they only add install time. `/design` is an internal component reference: it is deployed but not linked from navigation and is marked `noindex`.
+
 ## Local / Compose staging
 
 ```bash

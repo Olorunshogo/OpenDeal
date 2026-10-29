@@ -14,3 +14,12 @@ export function validateBitcoinAddressForNetwork(
     throw new Error(`Address is invalid for the configured ${network} network.`);
   }
 }
+
+export function bitcoinAddressError(address: string, network: BitcoinNetworkName): string | null {
+  try {
+    validateBitcoinAddressForNetwork(address, network);
+    return null;
+  } catch (err) {
+    return err instanceof Error ? err.message : "Invalid Bitcoin address.";
+  }
+}

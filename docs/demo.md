@@ -13,6 +13,7 @@ A click-by-click guide to running the full Bitcoin escrow lifecycle on regtest: 
 
 1. [Start the stack](#start-the-stack)
 2. [Set up the regtest wallet](#set-up-the-regtest-wallet)
+   - [Using Polar instead of the Compose bitcoind](#using-polar-instead-of-the-compose-bitcoind)
 3. [Part 1: Create identities](#part-1-create-identities)
 4. [Part 2: Create and sign the deal](#part-2-create-and-sign-the-deal)
 5. [Part 3: Fund the escrow](#part-3-fund-the-escrow)
@@ -65,50 +66,91 @@ Open <http://localhost:3000>.
 
 ## Set up the regtest wallet
 
-Use terminal C, from the repository root.
+Use terminal C, from the repository root. The wallet helpers talk to bitcoind over RPC with the API's own `BITCOIN_RPC_*` settings, so they always use **the same node and chain as the API**. They refuse to run on anything but regtest.
 
-**1. Define the `btc` helper**
-
-```bash
-unalias btc 2>/dev/null
-btc() { docker compose exec -T bitcoind bitcoin-cli -regtest -rpcuser=opendeal -rpcpassword=opendeal "$@"; }
-```
-
-> [!TIP]
-> Use a function, not an alias. `-T` stops Docker from allocating a TTY, which would otherwise append a stray `\r` to every address and break `$(...)` captures.
-
-**2. Create a wallet and mine spendable coins**
+**1. Check which node you are on**
 
 ```bash
-btc createwallet demo
-MINER=$(btc getnewaddress)
-echo "$MINER"                        # bcrt1... address
-btc generatetoaddress 101 "$MINER"   # prints 101 block hashes
-btc getbalance                       # 50.00000000
+make btc-info
 ```
 
-Only the first coinbase reward is mature after 101 blocks, which is plenty for the demo.
+```text
+Node RPC:  127.0.0.1:18443 (user opendeal)
+Chain:     regtest, height 101
+Wallets:   ["demo"]
+Using:     the only loaded wallet
+Balance:   50.00000000 BTC
+```
+
+**2. Get a funded wallet**
+
+```bash
+make wallet
+```
+
+Loads the node's wallet (or creates `demo`), and mines 101 blocks when the balance is under 1 BTC so a coinbase reward matures. Safe to re-run.
 
 **3. Generate settlement addresses**
 
 The signed agreement fixes where funds can go. Create one address for each outcome:
 
 ```bash
-SELLER_PAYOUT=$(btc getnewaddress)
-BUYER_REFUND=$(btc getnewaddress)
-echo "payout: $SELLER_PAYOUT"
-echo "refund: $BUYER_REFUND"
+make addresses
+```
+
+```text
+Seller payout address: bcrt1q…
+Buyer refund address:  bcrt1q…
 ```
 
 Keep these handy for Part 2 and Part 4.
 
-**Reconnecting later**
+**Helper reference**
 
-| Situation | Run |
+| Command | Does |
 |---|---|
-| New terminal | The `btc()` line and `MINER=$(btc getnewaddress)` again. Re-`echo` your saved payout and refund addresses, or reuse them from your notes |
-| Container restarted | `btc loadwallet demo` |
-| `createwallet` says the wallet exists | `btc loadwallet demo` |
+| `make btc-info` | Node, chain, height, loaded wallets, balance |
+| `make wallet` | Load or create a wallet, mine 101 blocks if it is low |
+| `make addresses` | Seller payout and buyer refund addresses |
+| `make fund ADDR=<escrow>` | Send 50,000 sats and mine 1 block. Add `AMOUNT=0.001` for other amounts |
+| `make mine` | Mine 1 block. Add `N=6` for more |
+| `make btc METHOD=<rpc>` | Any bitcoin-cli RPC, e.g. `make btc METHOD=getblockcount` or `make btc METHOD=getbalance` |
+
+Add `WALLET=<name>` to any of them when the node has more than one wallet loaded.
+
+### Using Polar instead of the Compose bitcoind
+
+If you run bitcoind from [Polar](https://lightningpolar.com/), point the API at it and the helpers follow automatically.
+
+1. Find the Polar bitcoind container and its RPC port:
+
+   ```bash
+   docker ps --format '{{.Names}}\t{{.Ports}}' | grep polar
+   ```
+
+   Look for `polar-n<network>-backend1`. The host port mapped to container port `18443` is the RPC port (for example `0.0.0.0:18444->18443/tcp`).
+
+2. Set the RPC settings in `crates/opendeal-api/.env` (the password is in Polar under the node's **Connect** tab):
+
+   ```dotenv
+   BITCOIN_RPC_URL=http://127.0.0.1:18444
+   BITCOIN_RPC_USER=polaruser
+   BITCOIN_RPC_PASSWORD=<polar rpc password>
+   ```
+
+3. Restart `make api`, then confirm both the API and the helpers see Polar's chain:
+
+   ```bash
+   make btc-info   # Node RPC should show the Polar port and user polaruser
+   ```
+
+4. Continue with `make wallet` and `make addresses` above. You can also mine blocks with Polar's own UI.
+
+> [!WARNING]
+> Coins must go to the chain the API watches. If `make up` also started `opendeal-bitcoind-1`, that is a **different** regtest chain. Funding an escrow there means **Verify funding** never finds the coins. The `make` helpers always follow the API, so use them instead of calling `bitcoin-cli` in a container directly. To avoid confusion, stop the unused node with `docker compose --profile standalone-bitcoin stop bitcoind`.
+
+> [!NOTE]
+> `make e2e` (`scripts/live-regtest-e2e.sh`) still drives the Compose bitcoind. Use it only when the API points at the Compose node.
 
 ---
 
@@ -154,7 +196,7 @@ A deal can only name a mediator the API has approved.
 1. Go to `/deals/new`.
 2. Title and amount are prefilled (`Used laptop`, `50000` sats). Change them if you like.
 3. Choose the buyer (add their public key under **Add a buyer contact** first) and an **Approved mediator**.
-4. Paste `$SELLER_PAYOUT` into **Seller payout address** and `$BUYER_REFUND` into **Buyer refund address**.
+4. Paste the two addresses from `make addresses` into **Seller payout address** and **Buyer refund address**.
 5. Click **Create deal**.
 6. Expect a redirect to `/deals/<id>` with status `draft`.
 7. In the **Agreement** card, click **Sign agreement**. The button changes to **You already signed**.
@@ -180,13 +222,13 @@ A deal can only name a mediator the API has approved.
 3. Send exactly the deal amount and mine a block:
 
    ```bash
-   btc sendtoaddress <escrow_address> 0.0005   # 50,000 sats
-   btc generatetoaddress 1 "$MINER"
+   make fund ADDR=<escrow_address>                 # 50,000 sats
+   make fund ADDR=<escrow_address> AMOUNT=0.001    # any other amount, in BTC
    ```
 
-   | Sats | BTC |
+   | Sats | `AMOUNT` |
    |---|---|
-   | 50,000 | `0.0005` |
+   | 50,000 | default (`0.0005`) |
    | 100,000 | `0.001` |
 
 **Seller window**
@@ -208,7 +250,7 @@ A deal can only name a mediator the API has approved.
 
 3. **Seller window**, in the **Settlement PSBT** card:
    - **Purpose:** `Payout seller`
-   - **Destination address:** `$SELLER_PAYOUT`, the same address signed into the agreement
+   - **Destination address:** the seller payout address from `make addresses`, the same one signed into the agreement
    - **Fee (sats):** `500`
 4. Click **Propose settlement**.
 
@@ -225,7 +267,7 @@ A deal can only name a mediator the API has approved.
 10. In terminal C, mine a block:
 
     ```bash
-    btc generatetoaddress 1 "$MINER"
+    make mine
     ```
 
 11. Click **Check confirmation**. Leave the block hash field empty; Core runs with `txindex`.
@@ -254,7 +296,7 @@ Repeat Parts 2 and 3 to get a fresh funded deal first.
 5. Write a **Rationale**.
 6. Click **Release to seller** or **Refund buyer**. The panel updates to show the decision, rationale, and resolver, and the decision buttons disappear.
 7. Click **Open deal PSBT panel →**. The deal opens with the matching purpose preselected.
-8. Continue as in Part 4 from **Propose**, with the mediator plus one party signing. For a refund, the destination is `$BUYER_REFUND`.
+8. Continue as in Part 4 from **Propose**, with the mediator plus one party signing. For a refund, the destination is the buyer refund address from `make addresses`.
 
 ---
 
@@ -275,8 +317,11 @@ Expect `live-e2e SUCCESS` and `receipt ok`. Open the printed deal ID at `http://
 | Symptom | Cause | Fix |
 |---|---|---|
 | `service "bitcoind" is not running` | Containers not started | `make up` |
-| `Error: Invalid address` on `generatetoaddress` | `$MINER` is empty in this shell | Re-run the `btc()` and `MINER=$(btc getnewaddress)` lines |
-| `Requested wallet does not exist or is not loaded` | Container restarted | `btc loadwallet demo` |
+| `bitcoin rpc error: Insufficient funds` on `make fund` | Wallet has no mature coins | `make wallet` |
+| `Requested wallet does not exist or is not loaded` | Node restarted and unloaded the wallet | `make wallet` |
+| `Several wallets are loaded` or `wallet file not specified` | The node has more than one wallet loaded (common on Polar) | Add `WALLET=<name>`, e.g. `make wallet WALLET=demo` |
+| `Bitcoin node unreachable at its RPC URL` | bitcoind or Polar is stopped, or the port in `BITCOIN_RPC_URL` is wrong | `make up` or start Polar, then `make btc-info` |
+| **Verify funding** never finds the coins | Escrow funded on a different regtest chain than the API watches | Run `make btc-info`, fund again with `make fund`. See [Using Polar](#using-polar-instead-of-the-compose-bitcoind) |
 | `bind: address already in use` on `make up` | Another stack holds the Postgres port | Set a free `POSTGRES_HOST_PORT` in `.env` and match `DATABASE_*` in `crates/opendeal-api/.env` |
 | `Sign in first (Sign in page).` or **Sign in to view this deal** | No session in this window | Click **Sign in** and create, unlock or restore that participant's identity |
 | **Your sign-in expired** | The JWT is older than 60 minutes | Click **Sign in again** in the footer (signs a fresh challenge with the key in memory), or unlock again on `/onboarding` |
