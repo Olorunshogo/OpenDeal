@@ -17,10 +17,6 @@
   <img alt="Network: regtest" src="https://img.shields.io/badge/network-regtest%20experimental-yellow.svg"/>
 </p>
 
-<p align="center">
-  Built for the <b>DevFest × Btrust</b> hackathon.
-</p>
-
 ---
 
 ## The problem
