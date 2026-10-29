@@ -1,79 +1,83 @@
 "use client";
 
-import Image from "next/image";
+import { ArrowRight } from "lucide-react";
 import Link from "next/link";
-import { motion } from "framer-motion";
-import { fadeUpVariants, staggerDelay } from "@/lib/motion";
+import BlurText from "@/components/react-bits/BlurText";
+import CountUp from "@/components/react-bits/CountUp";
+import ShinyText from "@/components/react-bits/ShinyText";
+import StarBorder from "@/components/react-bits/StarBorder";
+import { ButtonLink } from "@/components/ui";
+import { HERO, STATS } from "@/app/content";
+import { HeroBackdrop } from "./HeroBackdrop";
 
 // === Component
 
 export function Hero(): React.JSX.Element {
   return (
-    <main className="relative flex flex-1 flex-col justify-end px-4 pb-16 pt-10 sm:px-6 sm:pb-24 lg:px-12">
-      <div
-        aria-hidden
-        className="pointer-events-none absolute inset-0 opacity-40"
-        style={{
-          backgroundImage:
-            "linear-gradient(rgba(245,245,240,0.04) 1px, transparent 1px), linear-gradient(90deg, rgba(245,245,240,0.04) 1px, transparent 1px)",
-          backgroundSize: "48px 48px",
-          maskImage: "linear-gradient(to bottom, black 20%, transparent 85%)",
-        }}
-      />
-
-      <div className="relative z-10 flex max-w-3xl flex-col gap-8">
-        <div className="flex flex-col gap-5">
-          <motion.p
-            initial="initial"
-            animate="animate"
-            variants={fadeUpVariants}
-            transition={staggerDelay(0)}
-            className="network-badge text-xs uppercase tracking-[0.2em] text-[var(--accent-soft)]"
+    <section className="relative isolate flex min-h-[calc(100dvh-4rem)] items-center overflow-hidden px-4 py-20 sm:px-6 lg:px-12">
+      <HeroBackdrop />
+      <div className="relative flex w-full max-w-3xl flex-col gap-10">
+        <div className="flex flex-col gap-6">
+          <span className="inline-flex w-fit items-center gap-2 rounded-full border border-line bg-glass px-3 py-1 text-xs uppercase tracking-[0.18em] backdrop-blur-sm">
+            <span aria-hidden="true" className="size-1.5 rounded-full bg-brand shadow-glow-brand" />
+            <ShinyText text={HERO.badge} color="#A39FA9" shineColor="#FDBA74" speed={3} />
+          </span>
+          <h1 className="sr-only">
+            {HERO.headline} {HERO.highlight}
+          </h1>
+          <div
+            aria-hidden="true"
+            className="flex flex-col font-display text-4xl leading-[1.05] font-semibold tracking-tight text-ink sm:text-6xl lg:text-7xl"
           >
-            Bitcoin coordination · regtest experimental
-          </motion.p>
-          <motion.h1 initial="initial" animate="animate" variants={fadeUpVariants} transition={staggerDelay(1)}>
-            <Image
-              src="/full-logo-tr.png"
-              alt="OpenDeal"
-              width={365}
-              height={129}
-              className="h-auto w-full max-w-md sm:max-w-xl"
-              priority
+            <BlurText text={HERO.headline} animateBy="words" trigger="load" delay={90} />
+            <BlurText
+              text={HERO.highlight}
+              animateBy="words"
+              trigger="load"
+              delay={90}
+              className="bg-linear-to-r from-brand via-brand-soft to-violet-soft bg-clip-text text-transparent"
+              color="transparent"
             />
-          </motion.h1>
-          <motion.p
-            initial="initial"
-            animate="animate"
-            variants={fadeUpVariants}
-            transition={staggerDelay(2)}
-            className="max-w-xl text-lg leading-relaxed text-[var(--ink-muted)] sm:text-xl"
-          >
-            Signed deal agreements. 2-of-3 multisig escrow. The API coordinates the deal; it never
-            holds your keys.
-          </motion.p>
+          </div>
+          <p className="max-w-xl text-lg leading-relaxed text-ink-muted sm:text-xl">{HERO.body}</p>
         </div>
-        <motion.div
-          initial="initial"
-          animate="animate"
-          variants={fadeUpVariants}
-          transition={staggerDelay(3)}
-          className="flex flex-wrap gap-3"
-        >
-          <Link
-            href="/deals/new"
-            className="rounded bg-[var(--accent)] px-5 py-3 text-sm font-semibold text-[var(--bg-deep)] transition hover:bg-[var(--accent-soft)]"
+
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+          <StarBorder
+            as={Link}
+            href={HERO.primaryCta.href}
+            color="#F7931A"
+            radius={999}
+            backgroundColor="#F7931A"
+            textColor="#1A0F02"
+            borderColor="rgba(247, 147, 26, 0.45)"
+            className="font-semibold"
           >
-            Start a deal
-          </Link>
-          <Link
-            href="/mediator"
-            className="rounded border border-[var(--line)] px-5 py-3 text-sm text-[var(--ink)] transition hover:border-[var(--accent)]"
-          >
-            Mediator desk
-          </Link>
-        </motion.div>
+            {HERO.primaryCta.label}
+            <ArrowRight aria-hidden="true" className="size-4" />
+          </StarBorder>
+          <ButtonLink href={HERO.secondaryCta.href} variant="secondary" size="lg">
+            {HERO.secondaryCta.label}
+          </ButtonLink>
+        </div>
+
+        <dl className="grid max-w-2xl grid-cols-1 gap-6 border-t border-line pt-8 sm:grid-cols-3">
+          {STATS.map((stat) => (
+            <div key={stat.label} className="flex flex-col gap-1">
+              <dt className="order-2 text-sm text-ink-muted">{stat.label}</dt>
+              <dd className="order-1 font-display text-3xl font-semibold text-ink">
+                <CountUp
+                  to={Math.max(stat.value, stat.from)}
+                  from={Math.min(stat.value, stat.from)}
+                  direction={stat.from > stat.value ? "down" : "up"}
+                  duration={1.6}
+                  suffix={stat.suffix}
+                />
+              </dd>
+            </div>
+          ))}
+        </dl>
       </div>
-    </main>
+    </section>
   );
 }

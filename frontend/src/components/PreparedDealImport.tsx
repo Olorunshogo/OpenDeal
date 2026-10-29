@@ -1,6 +1,9 @@
 "use client";
 
+import { CircleCheck, FileJson, TriangleAlert } from "lucide-react";
 import { useState } from "react";
+import { Alert, Amount, Button, DataList, HashValue, Textarea, UploadField, type DataListItem } from "@/components/ui";
+import { cn } from "@/lib/cn";
 import {
   MAX_PREPARED_DEAL_BYTES,
   parsePreparedDeal,
@@ -17,9 +20,6 @@ interface Props {
   onApply: (deal: PreparedDeal) => void;
 }
 
-const button =
-  "rounded border border-[var(--line)] px-3 py-1.5 text-sm disabled:opacity-40";
-
 // Loads a configuration prepared with `make tui`, shows a preview, and only fills the form
 // when the user applies it. Creating the deal still goes through the normal submit path.
 export function PreparedDealImport({
@@ -32,8 +32,9 @@ export function PreparedDealImport({
 }: Props) {
   const [preview, setPreview] = useState<PreparedDeal | null>(null);
   const [errors, setErrors] = useState<string[]>([]);
-  const [pasted, setPasted] = useState("");
-  const [applied, setApplied] = useState(false);
+  const [pasted, setPasted] = useState<string>("");
+  const [applied, setApplied] = useState<boolean>(false);
+  const [file, setFile] = useState<File | null>(null);
 
   function load(text: string) {
     setApplied(false);
@@ -51,121 +52,112 @@ export function PreparedDealImport({
     }
   }
 
-  const review = preview
-    ? preparedDealChecks(preview, { sessionPubkey, approvedMediators })
-    : null;
+  function onFileChange(next: File | null) {
+    setFile(next);
+    if (!next) return;
+    if (next.size > MAX_PREPARED_DEAL_BYTES) {
+      setPreview(null);
+      setErrors(["Configuration file is too large."]);
+      return;
+    }
+    void next.text().then(load, () => setErrors(["Could not read the file."]));
+  }
+
+  const review = preview ? preparedDealChecks(preview, { sessionPubkey, approvedMediators }) : null;
+
+  const previewItems: DataListItem[] = preview
+    ? [
+        { label: "Title", value: preview.deal.title },
+        { label: "Amount", value: <Amount sats={preview.deal.amount_sats} size="sm" /> },
+        ...(preview.deal.description ? [{ label: "Description", value: preview.deal.description, wide: true }] : []),
+        { label: "Network", value: preview.network },
+        { label: "Seller", value: <HashValue value={preview.participants.seller_pubkey} /> },
+        { label: "Buyer", value: <HashValue value={preview.participants.buyer_pubkey} /> },
+        {
+          label: "Mediator",
+          value: (
+            <span className="flex flex-col gap-0.5">
+              <HashValue value={preview.participants.mediator_pubkey} />
+              {preview.participants.mediator_display_name ? (
+                <span className="text-xs text-ink-muted">{preview.participants.mediator_display_name}</span>
+              ) : null}
+            </span>
+          ),
+        },
+        { label: "Seller payout", value: <HashValue value={preview.deal.seller_payout_address} head={10} /> },
+        { label: "Buyer refund", value: <HashValue value={preview.deal.buyer_refund_address} head={10} /> },
+        { label: "Delivery deadline", value: preview.deal.delivery_deadline },
+        { label: "Acceptance window", value: `${preview.deal.acceptance_window_hours} hours` },
+        { label: "Escrow preview", value: <HashValue value={preview.escrow_preview.address} head={10} />, wide: true },
+      ]
+    : [];
 
   return (
-    <details className="rounded border border-[var(--line)] p-3 text-sm">
-      <summary className="cursor-pointer">
+    <details className="group rounded-2xl border border-line bg-glass text-sm backdrop-blur-md">
+      <summary className="flex cursor-pointer items-center gap-2 px-4 py-3 text-ink-muted hover:text-ink">
+        <FileJson aria-hidden="true" className="size-4 text-violet-soft" />
         Import prepared configuration (from opendeal-tui)
       </summary>
-      <div className="mt-3 flex flex-col gap-3">
-        <p className="text-xs text-[var(--ink-muted)]">
-          Load the JSON exported by <code>make tui</code>. It holds public keys,
-          addresses and terms only. Nothing is created until you review the
-          form and press Create deal; the API validates everything again.
+      <div className="flex flex-col gap-4 border-t border-line p-4">
+        <p className="text-xs text-ink-muted">
+          Load the JSON exported by <code className="font-mono text-ink">make tui</code>. It holds public keys,
+          addresses and terms only. Nothing is created until you review the form and press Create deal; the API
+          validates everything again.
         </p>
-        <label className="flex flex-col gap-1">
-          Configuration file
-          <input
-            type="file"
-            accept="application/json,.json"
-            disabled={disabled}
-            onChange={(e) => {
-              const file = e.target.files?.[0];
-              e.target.value = "";
-              if (!file) return;
-              if (file.size > MAX_PREPARED_DEAL_BYTES) {
-                setPreview(null);
-                setErrors(["Configuration file is too large."]);
-                return;
-              }
-              void file.text().then(load, () => setErrors(["Could not read the file."]));
-            }}
-          />
-        </label>
-        <label className="flex flex-col gap-1">
-          …or paste the JSON (TUI: Export → c copies it)
-          <textarea
-            className="min-h-20 rounded border border-[var(--line)] bg-[var(--bg-deep)] p-2 font-mono text-xs"
-            value={pasted}
-            disabled={disabled}
-            onChange={(e) => setPasted(e.target.value)}
-          />
-        </label>
-        <button
-          type="button"
-          className={`${button} w-fit`}
+        <UploadField
+          label="Configuration file"
+          accept="application/json,.json"
+          file={file}
+          onFileChange={onFileChange}
+          disabled={disabled}
+        />
+        <Textarea
+          label="…or paste the JSON (TUI: Export → c copies it)"
+          mono
+          value={pasted}
+          disabled={disabled}
+          onChange={(event) => setPasted(event.target.value)}
+        />
+        <Button
+          variant="secondary"
+          size="sm"
+          className="w-fit"
           disabled={disabled || !pasted.trim()}
           onClick={() => load(pasted)}
         >
           Preview pasted JSON
-        </button>
+        </Button>
 
         {errors.length ? (
-          <div role="alert" className="text-[var(--danger)]">
-            <p>Configuration rejected:</p>
-            <ul className="list-disc pl-5">
+          <Alert tone="danger" title="Configuration rejected">
+            <ul className="flex list-disc flex-col gap-1 pl-5">
               {errors.map((error) => (
                 <li key={error}>{error}</li>
               ))}
             </ul>
-          </div>
+          </Alert>
         ) : null}
 
         {preview && review ? (
-          <div className="flex flex-col gap-2 rounded border border-[var(--line)] p-3">
-            <p className="font-semibold">Preview (not yet applied)</p>
-            <dl className="grid gap-x-3 gap-y-1 text-xs sm:grid-cols-[max-content_1fr]">
-              <dt>Title</dt>
-              <dd>{preview.deal.title}</dd>
-              {preview.deal.description ? (
-                <>
-                  <dt>Description</dt>
-                  <dd className="break-words">{preview.deal.description}</dd>
-                </>
-              ) : null}
-              <dt>Amount</dt>
-              <dd>{preview.deal.amount_sats.toLocaleString()} sats</dd>
-              <dt>Network</dt>
-              <dd>{preview.network}</dd>
-              <dt>Seller</dt>
-              <dd className="break-all font-mono">{preview.participants.seller_pubkey}</dd>
-              <dt>Buyer</dt>
-              <dd className="break-all font-mono">{preview.participants.buyer_pubkey}</dd>
-              <dt>Mediator</dt>
-              <dd className="break-all font-mono">
-                {preview.participants.mediator_pubkey}
-                {preview.participants.mediator_display_name
-                  ? ` (${preview.participants.mediator_display_name})`
-                  : ""}
-              </dd>
-              <dt>Seller payout</dt>
-              <dd className="break-all font-mono">{preview.deal.seller_payout_address}</dd>
-              <dt>Buyer refund</dt>
-              <dd className="break-all font-mono">{preview.deal.buyer_refund_address}</dd>
-              <dt>Delivery deadline</dt>
-              <dd>{preview.deal.delivery_deadline}</dd>
-              <dt>Acceptance window</dt>
-              <dd>{preview.deal.acceptance_window_hours} hours</dd>
-              <dt>Escrow preview</dt>
-              <dd className="break-all font-mono">{preview.escrow_preview.address}</dd>
-            </dl>
-            <ul className="flex flex-col gap-1 text-xs">
-              {review.checks.map((check) => (
-                <li
-                  key={check.label}
-                  className={check.ok ? "text-[var(--ok)]" : "text-[var(--warn)]"}
-                >
-                  {check.ok ? "✔" : "⚠"} {check.label}: {check.detail}
-                </li>
-              ))}
+          <div className="flex flex-col gap-4 rounded-2xl border border-violet/30 bg-violet-deep/10 p-4">
+            <p className="font-display font-semibold text-ink">Preview (not yet applied)</p>
+            <DataList items={previewItems} />
+            <ul className="flex flex-col gap-1.5 text-xs">
+              {review.checks.map((check) => {
+                const Icon = check.ok ? CircleCheck : TriangleAlert;
+                return (
+                  <li key={check.label} className={cn("flex items-start gap-2", check.ok ? "text-ok" : "text-warn")}>
+                    <Icon aria-hidden="true" className="mt-0.5 size-3.5 shrink-0" />
+                    <span>
+                      {check.label}: {check.detail}
+                    </span>
+                  </li>
+                );
+              })}
             </ul>
             <div className="flex flex-wrap gap-2">
-              <button
-                type="button"
-                className={button}
+              <Button
+                size="sm"
                 disabled={disabled || !review.canApply}
                 onClick={() => {
                   onApply(preview);
@@ -173,24 +165,21 @@ export function PreparedDealImport({
                 }}
               >
                 Apply to form
-              </button>
-              <button
-                type="button"
-                className={button}
+              </Button>
+              <Button
+                size="sm"
+                variant="ghost"
                 onClick={() => {
                   setPreview(null);
                   setApplied(false);
                   setPasted("");
+                  setFile(null);
                 }}
               >
                 Discard
-              </button>
+              </Button>
             </div>
-            {applied ? (
-              <p role="status" className="text-[var(--ok)]">
-                Applied. Review the form below, then press Create deal.
-              </p>
-            ) : null}
+            {applied ? <Alert tone="ok">Applied. Review the form below, then press Create deal.</Alert> : null}
           </div>
         ) : null}
       </div>

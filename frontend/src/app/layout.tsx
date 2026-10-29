@@ -1,16 +1,20 @@
 import type { Metadata } from "next";
-import { Figtree, Instrument_Serif } from "next/font/google";
+import { Figtree, JetBrains_Mono, Sora } from "next/font/google";
 import "./globals.css";
 import { Providers } from "./providers";
 
-const instrument = Instrument_Serif({
-  variable: "--font-instrument",
+const sora = Sora({
+  variable: "--font-sora",
   subsets: ["latin"],
-  weight: "400",
 });
 
 const figtree = Figtree({
   variable: "--font-figtree",
+  subsets: ["latin"],
+});
+
+const jetbrainsMono = JetBrains_Mono({
+  variable: "--font-jetbrains",
   subsets: ["latin"],
 });
 
@@ -62,7 +66,7 @@ export const metadata: Metadata = {
 
 export default function RootLayout({ children }: LayoutProps<"/">) {
   return (
-    <html lang="en" className={`${instrument.variable} ${figtree.variable} h-full antialiased`}>
+    <html lang="en" className={`${sora.variable} ${figtree.variable} ${jetbrainsMono.variable} h-full antialiased`}>
       <body className="min-h-full flex flex-col">
         <Providers>{children}</Providers>
       </body>

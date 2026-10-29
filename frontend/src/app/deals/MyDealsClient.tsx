@@ -1,17 +1,20 @@
 "use client";
 
-import Link from "next/link";
 import { useQuery } from "@tanstack/react-query";
+import { ChevronRight, Inbox, Plus } from "lucide-react";
+import Link from "next/link";
 import { AppShell } from "@/components/AppShell";
+import { PageHeader } from "@/components/layout/PageHeader";
+import { Alert, Amount, Badge, ButtonLink, EmptyState, Skeleton, StatusBadge } from "@/components/ui";
 import { listMyDeals, type DealSummary } from "@/lib/api";
-import { useSession } from "@/lib/session";
+import { useSession, type Session } from "@/lib/session";
 
 const POLL_MS = 10_000;
 
 export function MyDealsClient() {
-  const session = useSession();
-  const token = session?.token ?? "";
-  const viewer = session?.pubkey;
+  const session: Session | null = useSession();
+  const token: string = session?.token ?? "";
+  const viewer: string | undefined = session?.pubkey;
 
   const dealsQuery = useQuery({
     queryKey: ["my-deals", viewer],
@@ -22,35 +25,55 @@ export function MyDealsClient() {
 
   return (
     <AppShell>
-      <div className="mx-auto flex w-full max-w-3xl flex-col gap-6 animate-rise">
-        <div className="flex flex-col gap-2">
-          <p className="text-xs uppercase tracking-[0.18em] text-[var(--accent-soft)]">Deals</p>
-          <h1 className="font-[family-name:var(--font-display)] text-3xl sm:text-4xl">My deals</h1>
-          <p className="text-sm text-[var(--ink-muted)]">
-            Every deal where you are the seller, buyer, or mediator, most recently updated first.
-          </p>
-        </div>
+      <div className="mx-auto flex w-full max-w-4xl flex-col gap-8 animate-rise">
+        <PageHeader
+          eyebrow="Deals"
+          title="My deals"
+          description="Every deal where you are the seller, buyer, or mediator, most recently updated first."
+          actions={
+            token ? (
+              <ButtonLink href="/deals/new" leading={<Plus className="size-4" />}>
+                New deal
+              </ButtonLink>
+            ) : null
+          }
+        />
 
         {!token ? (
-          <p className="text-sm">
-            <Link href="/onboarding?next=/deals" className="underline underline-offset-4">
-              Sign in
-            </Link>{" "}
-            to see your deals.
-          </p>
+          <EmptyState
+            icon={<Inbox className="size-5" />}
+            title="Sign in to see your deals"
+            description="Your deals are only visible to the identities that are party to them."
+            action={
+              <ButtonLink href="/onboarding?next=/deals" size="sm">
+                Sign in
+              </ButtonLink>
+            }
+          />
         ) : dealsQuery.isPending ? (
-          <p className="text-sm text-[var(--ink-muted)]">Loading your deals…</p>
+          <ul className="flex flex-col gap-3" aria-busy="true" aria-label="Loading your deals">
+            {[0, 1, 2].map((row) => (
+              <li key={row} className="flex flex-col gap-3 rounded-2xl border border-line bg-glass p-5">
+                <Skeleton className="h-5 w-1/2" />
+                <Skeleton className="h-3 w-1/3" />
+              </li>
+            ))}
+          </ul>
         ) : dealsQuery.isError ? (
-          <p role="alert" className="text-sm text-[var(--danger)]">
-            {dealsQuery.error instanceof Error ? dealsQuery.error.message : "Could not load your deals."}
-          </p>
+          <Alert tone="danger" title="Could not load your deals">
+            {dealsQuery.error instanceof Error ? dealsQuery.error.message : "Try again in a moment."}
+          </Alert>
         ) : dealsQuery.data.length === 0 ? (
-          <div className="flex flex-col gap-2 text-sm text-[var(--ink-muted)]">
-            <p>You have no deals yet.</p>
-            <Link href="/deals/new" className="w-fit underline underline-offset-4">
-              Create a deal
-            </Link>
-          </div>
+          <EmptyState
+            icon={<Inbox className="size-5" />}
+            title="No deals yet"
+            description="Create a deal as the seller, or ask a seller to add your public key as the buyer."
+            action={
+              <ButtonLink href="/deals/new" size="sm">
+                Create a deal
+              </ButtonLink>
+            }
+          />
         ) : (
           <ul className="flex flex-col gap-3">
             {dealsQuery.data.map((deal) => (
@@ -68,24 +91,27 @@ function DealRow({ deal }: { deal: DealSummary }) {
     <li>
       <Link
         href={`/deals/${deal.id}`}
-        className="flex flex-col gap-2 rounded border border-[var(--line)] p-4 transition hover:border-[var(--accent)] sm:flex-row sm:items-center sm:justify-between"
+        className="group flex flex-col gap-4 rounded-2xl border border-line bg-glass p-5 backdrop-blur-md transition-[border-color,box-shadow] hover:border-violet/50 hover:shadow-glow-violet sm:flex-row sm:items-center sm:justify-between"
       >
-        <div className="flex min-w-0 flex-col gap-1">
-          <span className="break-words font-medium">{deal.title}</span>
-          <span className="font-mono text-[10px] text-[var(--ink-muted)]">
+        <div className="flex min-w-0 flex-col gap-2">
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="break-words font-display font-semibold text-ink">{deal.title}</span>
+            <StatusBadge status={deal.status} />
+          </div>
+          <span className="font-mono text-[11px] text-ink-subtle">
             {deal.id.slice(0, 16)}… · updated {new Date(deal.updated_at).toLocaleString()}
           </span>
         </div>
-        <div className="flex flex-wrap items-center gap-2 text-xs">
-          <span className="rounded border border-[var(--line)] px-2 py-0.5 text-[var(--ink-muted)]">
-            you: {deal.role}
-          </span>
-          <span className="rounded border border-[var(--line)] px-2 py-0.5 text-[var(--ok)]">
-            {deal.status}
-          </span>
-          <span className="text-[var(--ink-muted)]">
-            {deal.amount_sats.toLocaleString()} sats · {deal.network}
-          </span>
+        <div className="flex items-center justify-between gap-4 sm:justify-end">
+          <div className="flex flex-wrap items-center gap-2">
+            <Badge tone="violet">you: {deal.role}</Badge>
+            <Badge>{deal.network}</Badge>
+          </div>
+          <Amount sats={deal.amount_sats} size="sm" showBtc={false} />
+          <ChevronRight
+            aria-hidden="true"
+            className="size-4 shrink-0 text-ink-subtle transition-transform group-hover:translate-x-0.5 group-hover:text-ink"
+          />
         </div>
       </Link>
     </li>

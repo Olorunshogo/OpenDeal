@@ -1,17 +1,27 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { zodResolver } from "@hookform/resolvers/zod";
 import { useQueryClient } from "@tanstack/react-query";
-import { Input } from "@/components/ui/Input";
+import { LockKeyhole } from "lucide-react";
+import { useRef, useState, type FormEvent } from "react";
+import { Controller, useForm } from "react-hook-form";
+import {
+  Alert,
+  Button,
+  Card,
+  PasswordInput,
+  UploadField,
+} from "@/components/ui";
 import { normPubkey } from "@/lib/crypto";
 import { useDeviceIdentity } from "@/lib/device-identity";
 import { unlockIdentity } from "@/lib/identity-session";
 import {
   MAX_IDENTITY_FILE_BYTES,
-  MIN_PASSPHRASE_LENGTH,
   parseRecoveryFile,
   type EncryptedEnvelope,
 } from "@/lib/identity-vault";
+import { errorMessage } from "@/lib/server-errors";
+import { unlockSchema, type UnlockValues } from "@/schemas/identity";
 
 /**
  * Shown where signing is needed but this tab holds no signing key (for example after a reload).
@@ -21,20 +31,28 @@ import {
 export function UnlockSigningKey({ pubkey }: { pubkey: string }) {
   const queryClient = useQueryClient();
   const deviceIdentity = useDeviceIdentity();
-  const running = useRef(false);
-  const [fileEnvelope, setFileEnvelope] = useState<EncryptedEnvelope | null>(null);
-  const [passphrase, setPassphrase] = useState("");
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState("");
+  const running = useRef<boolean>(false);
+  const [fileEnvelope, setFileEnvelope] = useState<EncryptedEnvelope | null>(
+    null
+  );
+  const [chosenFile, setChosenFile] = useState<File | null>(null);
+  const [error, setError] = useState<string>("");
+  const form = useForm<UnlockValues>({
+    resolver: zodResolver(unlockSchema),
+    defaultValues: { passphrase: "" },
+  });
 
-  const wanted = normPubkey(pubkey);
+  const wanted: string = normPubkey(pubkey);
   const deviceMatch =
-    deviceIdentity && normPubkey(deviceIdentity.pubkey) === wanted ? deviceIdentity : null;
+    deviceIdentity && normPubkey(deviceIdentity.pubkey) === wanted
+      ? deviceIdentity
+      : null;
   const envelope = fileEnvelope ?? deviceMatch;
 
-  function onFile(file: File | undefined) {
+  function onFile(file: File | null) {
     setError("");
     setFileEnvelope(null);
+    setChosenFile(file);
     if (!file) return;
     if (file.size > MAX_IDENTITY_FILE_BYTES) {
       setError("Recovery file is too large.");
@@ -43,97 +61,106 @@ export function UnlockSigningKey({ pubkey }: { pubkey: string }) {
     void file.text().then(
       (text) => {
         try {
-          const match = parseRecoveryFile(text).find((c) => normPubkey(c.envelope.pubkey) === wanted);
+          const match = parseRecoveryFile(text).find(
+            (c) => normPubkey(c.envelope.pubkey) === wanted
+          );
           if (!match) {
             setError(
-              `This recovery file is for a different identity. Choose the file named opendeal-identity-${wanted.slice(0, 8)}.json.`,
+              `This recovery file is for a different identity. Choose the file named opendeal-identity-${wanted.slice(0, 8)}.json.`
             );
             return;
           }
           setFileEnvelope(match.envelope);
         } catch (e) {
-          setError(e instanceof Error ? e.message : "Invalid recovery file.");
+          setError(errorMessage(e, "Invalid recovery file."));
         }
       },
-      () => setError("Could not read the file."),
+      () => setError("Could not read the file.")
     );
   }
 
-  async function onUnlock() {
-    if (!envelope || running.current) return;
-    running.current = true;
-    setBusy(true);
-    setError("");
-    try {
-      await unlockIdentity(envelope, passphrase, () => {
-        void queryClient.cancelQueries();
-        queryClient.clear();
-      });
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Could not unlock.");
-    } finally {
-      running.current = false;
-      setBusy(false);
-      setPassphrase("");
-    }
-  }
+  const onUnlock = (event: FormEvent<HTMLFormElement>): Promise<void> =>
+    form.handleSubmit(async (values: UnlockValues) => {
+      if (!envelope || running.current) return;
+      running.current = true;
+      setError("");
+      try {
+        await unlockIdentity(envelope, values.passphrase, () => {
+          void queryClient.cancelQueries();
+          queryClient.clear();
+        });
+      } catch (e) {
+        form.setError("passphrase", {
+          type: "server",
+          message: errorMessage(e, "Could not unlock."),
+        });
+      } finally {
+        running.current = false;
+        form.reset({ passphrase: "" });
+      }
+    })(event);
+
+  const busy: boolean = form.formState.isSubmitting;
 
   return (
-    <section
+    <Card
       aria-label="Unlock signing key"
-      className="flex flex-col gap-3 rounded border border-[var(--warn)] bg-[var(--warn)]/10 p-4 text-sm"
+      role="region"
+      className="border-warn/40 bg-warn/[0.06]"
     >
-      <div className="flex flex-col gap-1">
-        <h2 className="font-semibold">Unlock your signing key to act on this deal</h2>
-        <p className="text-xs text-[var(--ink-muted)]">
-          You are signed in as {wanted.slice(0, 8)}…, but this tab has no signing key (keys are kept
-          only in memory and are cleared when the page reloads). Signing buttons stay disabled until
-          you unlock.
-        </p>
+      <div className="flex items-start gap-3">
+        <span className="flex size-10 shrink-0 items-center justify-center rounded-2xl border border-warn/40 bg-warn/10 text-warn">
+          <LockKeyhole aria-hidden="true" className="size-5" />
+        </span>
+        <div className="flex flex-col gap-1">
+          <h2 className="font-display font-semibold text-ink">
+            Unlock your signing key to act on this deal
+          </h2>
+          <p className="text-sm text-ink-muted">
+            You are signed in as {wanted.slice(0, 8)}…, but this tab has no
+            signing key (keys are kept only in memory and are cleared when the
+            page reloads). Signing buttons stay disabled until you unlock.
+          </p>
+        </div>
       </div>
       {deviceMatch && !fileEnvelope ? (
-        <p className="text-xs">Using the encrypted copy saved on this device.</p>
+        <Alert tone="info">
+          Using the encrypted copy saved on this device.
+        </Alert>
       ) : (
-        <label className="flex flex-col gap-1 text-xs">
-          Recovery file (opendeal-identity-{wanted.slice(0, 8)}.json)
-          <input
-            type="file"
-            accept="application/json,.json"
-            disabled={busy}
-            onChange={(e) => {
-              onFile(e.target.files?.[0]);
-              e.target.value = "";
-            }}
-          />
-        </label>
+        <UploadField
+          label={`Recovery file (opendeal-identity-${wanted.slice(0, 8)}.json)`}
+          accept="application/json,.json"
+          file={chosenFile}
+          onFileChange={onFile}
+          disabled={busy}
+        />
       )}
       {envelope ? (
-        <div className="flex flex-col gap-2 sm:flex-row sm:items-end">
-          <Input
-            label="Passphrase"
-            type="password"
-            autoComplete="current-password"
-            value={passphrase}
-            onChange={(e) => setPassphrase(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter" && passphrase.length >= MIN_PASSPHRASE_LENGTH) void onUnlock();
-            }}
+        <form onSubmit={onUnlock} className="flex flex-col gap-3" noValidate>
+          <Controller
+            control={form.control}
+            name="passphrase"
+            render={({ field, fieldState }) => (
+              <PasswordInput
+                label="Passphrase"
+                autoComplete="current-password"
+                error={fieldState.error?.message}
+                {...field}
+              />
+            )}
           />
-          <button
-            type="button"
-            disabled={busy || passphrase.length < MIN_PASSPHRASE_LENGTH}
-            onClick={() => void onUnlock()}
-            className="rounded bg-[var(--accent)] px-4 py-2 text-sm font-semibold text-[var(--bg-deep)] disabled:opacity-50"
+          <Button
+            type="submit"
+            loading={busy}
+            loadingLabel="Unlocking…"
+            className="w-full sm:w-fit"
           >
-            {busy ? "Unlocking…" : "Unlock"}
-          </button>
-        </div>
+            Unlock
+          </Button>
+        </form>
       ) : null}
-      {error ? (
-        <p role="alert" className="text-xs text-[var(--danger)]">
-          {error}
-        </p>
-      ) : null}
-    </section>
+      {error ? <Alert tone="danger">{error}</Alert> : null}
+    </Card>
   );
 }

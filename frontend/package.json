@@ -25,6 +25,7 @@
   },
   "dependencies": {
     "@hookform/resolvers": "^6.0.0",
+    "@noble/curves": "^2.4.0",
     "@noble/hashes": "^2.4.0",
     "@noble/secp256k1": "^3.2.0",
     "@scure/base": "^2.4.0",
@@ -38,6 +39,7 @@
     "react": "19.3.1",
     "react-dom": "19.3.1",
     "react-hook-form": "^7.89.0",
+    "vgpu": "^0.3.1",
     "zod": "^4.6.5"
   },
   "devDependencies": {
@@ -52,5 +54,8 @@
     "tailwindcss": "^4",
     "typescript": "npm:@typescript/typescript6@^6.0.2"
   },
-  "packageManager": "pnpm@12.10.1"
+  "packageManager": "pnpm@12.16.1",
+  "engines": {
+    "node": "24.x"
+  }
 }

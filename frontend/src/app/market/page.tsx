@@ -1,8 +1,11 @@
 "use client";
 
-import Link from "next/link";
+import { ArrowRight, Laptop } from "lucide-react";
 import { AppShell } from "@/components/AppShell";
+import { PageHeader } from "@/components/layout/PageHeader";
 import { NetworkBanner } from "@/components/NetworkBanner";
+import SpotlightCard from "@/components/react-bits/SpotlightCard";
+import { Amount, Badge, ButtonLink } from "@/components/ui";
 
 const LISTING = {
   title: "Used laptop",
@@ -14,31 +17,29 @@ export default function MarketPage() {
   const href = `/deals/new?title=${encodeURIComponent(LISTING.title)}&amount_sats=${LISTING.amountSats}`;
   return (
     <AppShell>
-      <div className="mx-auto flex w-full max-w-xl flex-col gap-6">
+      <div className="mx-auto flex w-full max-w-3xl flex-col gap-8 animate-rise">
         <NetworkBanner />
-        <div className="flex flex-col gap-3">
-          <div className="flex flex-col gap-2">
-            <p className="text-xs uppercase tracking-[0.18em] text-[var(--accent-soft)]">
-              Toy marketplace
-            </p>
-            <h1 className="font-[family-name:var(--font-display)] text-3xl sm:text-4xl">
-              One listing
-            </h1>
+        <PageHeader eyebrow="Toy marketplace" title="One listing" description={LISTING.blurb} />
+        <SpotlightCard
+          spotlightColor="rgba(247, 147, 26, 0.18)"
+          className="flex flex-col gap-6 rounded-3xl border border-line bg-glass p-6 sm:flex-row sm:items-center sm:justify-between sm:p-8"
+        >
+          <div className="flex items-center gap-4">
+            <span className="flex size-14 shrink-0 items-center justify-center rounded-2xl border border-violet/30 bg-violet/10 text-violet-soft">
+              <Laptop aria-hidden="true" className="size-6" strokeWidth={1.6} />
+            </span>
+            <div className="flex flex-col gap-2">
+              <h2 className="font-display text-xl font-semibold text-ink">{LISTING.title}</h2>
+              <div className="flex flex-wrap items-center gap-2">
+                <Amount sats={LISTING.amountSats} size="sm" />
+                <Badge tone="brand">2-of-3 escrow</Badge>
+              </div>
+            </div>
           </div>
-          <p className="text-sm text-[var(--ink-muted)]">{LISTING.blurb}</p>
-        </div>
-        <article className="flex flex-col items-start gap-4 rounded border border-[var(--line)] p-4">
-          <div className="flex flex-col gap-2">
-            <h2 className="text-xl">{LISTING.title}</h2>
-            <p className="text-sm">{LISTING.amountSats.toLocaleString()} sats</p>
-          </div>
-          <Link
-            href={href}
-            className="inline-block rounded bg-[var(--accent)] px-4 py-2 text-sm font-semibold text-[var(--bg-deep)]"
-          >
+          <ButtonLink href={href} trailing={<ArrowRight className="size-4" />}>
             Open as a deal
-          </Link>
-        </article>
+          </ButtonLink>
+        </SpotlightCard>
       </div>
     </AppShell>
   );
