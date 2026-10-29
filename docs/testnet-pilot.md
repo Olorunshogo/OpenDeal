@@ -49,7 +49,7 @@ Frontend: set `NEXT_PUBLIC_BITCOIN_NETWORK=testnet` so create/deal screens show 
 5. Verify funding in the UI / `funding/verify`.
 6. Happy path: ship → accept → propose settlement (`payout_seller`) with a policy-valid fee → review PSBT on the deal page → two parties sign → finalize.
 7. Dispute path (optional): open dispute → mediator resolves → propose refund or payout → same PSBT review.
-8. Export receipt; keep txids and the receipt JSON for the pilot log.
+8. Verify receipt, then download the receipt JSON; keep txids and the receipt JSON for the pilot log.
 
 ## Faucets and explorers
 

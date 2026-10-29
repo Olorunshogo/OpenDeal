@@ -32,7 +32,7 @@ make addresses
 - Paste the two addresses from `make addresses`
 - **Create deal**
 
-Copy the deal page URL into the buyer window.
+In the buyer window, open **My deals** and click the deal. Pasting the URL also works.
 
 ## 3. Sign (both)
 
@@ -62,6 +62,6 @@ make fund ADDR=<escrow address>
 make mine
 ```
 
-Seller: **Check confirmation**. Status: `settled`. **Export receipt** to download proof.
+Seller: **Check confirmation**. Status: `settled`. **Verify receipt**, then **Download receipt JSON** to save the proof.
 
 Full walkthrough with disputes and a self-run mediator: [demo.md](./demo.md).

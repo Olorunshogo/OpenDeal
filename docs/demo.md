@@ -234,7 +234,7 @@ A deal can only name a mediator the API has approved.
 
 **Receipt**
 
-12. Click **Export receipt** to download the signed JSON receipt.
+12. Click **Verify receipt**, then **Download receipt JSON** to save the signed JSON receipt.
 13. Verify it offline:
 
     ```bash

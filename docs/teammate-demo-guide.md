@@ -147,9 +147,10 @@ Every deal needs an approved mediator. It only acts if there's a dispute, so for
 
 Each one downloads `opendeal-identity-XXXXXXXX.json`. The 8 characters `XXXXXXXX` are the start of the key shown under **Signed in as …**, so you can tell which file is the seller's and which is the buyer's.
 
-> **Don't reload deal pages.** The signing key lives only in that tab's memory. If you do reload, go to
-> **Sign in → Restore from a recovery file**, choose that person's file, enter the passphrase, then
-> click **Continue**. Deal pages refresh themselves every 5 seconds, so you never need to reload.
+> **No need to reload deal pages:** they refresh themselves every 5 seconds ("Updated Ns ago").
+> The signing key lives only in that tab's memory, so a reload locks it. If that happens, the deal
+> page shows **Unlock your signing key**: choose that person's recovery file, enter the passphrase,
+> and click **Unlock**. You stay on the same page.
 
 ---
 
@@ -191,7 +192,7 @@ The TUI never sees private keys. The exported file contains only public keys, ad
    - The seller is the signed-in identity.
    - The mediator is approved.
 4. Click **Apply to form**, then **Create deal**.
-5. The status is **draft**: the deal exists, but no money has moved yet. Copy the page URL into the **buyer** window.
+5. The status is **draft**: the deal exists, but no money has moved yet. In the **buyer** window, click **My deals** in the header and open the deal. Pasting the URL also works.
 
 ## 9. Sign (both windows)
 
@@ -223,7 +224,7 @@ Then run:
 make mine
 ```
 
-In the seller window, click **Check confirmation**. The status becomes **settled**. Then click **Export receipt** and **Download receipt JSON** to save the proof.
+In the seller window, click **Check confirmation**. The status becomes **settled**. Then click **Verify receipt** (it runs the consistency checks) and **Download receipt JSON** to save the proof.
 
 ---
 
