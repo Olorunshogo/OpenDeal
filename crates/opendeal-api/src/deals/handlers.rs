@@ -17,7 +17,7 @@ use super::service;
 
 pub fn router() -> Router<AppState> {
     return Router::new()
-        .route("/", post(create_deal))
+        .route("/", post(create_deal).get(list_deals))
         .route("/{id}", get(get_deal))
         .route("/{id}/sign", post(sign_agreement))
         .route("/{id}/transition", post(transition_deal))
@@ -43,6 +43,15 @@ async fn create_deal(
 ) -> Result<Json<ApiEnvelope<Deal>>, ApiError> {
     let deal = service::create_deal(&state, &user.pubkey, req, _idem.key.as_deref()).await?;
     return Ok(Json(ApiEnvelope::ok("deal created", deal)));
+}
+
+/// Deals where the caller is seller, buyer, or mediator, most recently updated first.
+async fn list_deals(
+    State(state): State<AppState>,
+    user: AuthenticatedUser,
+) -> Result<Json<ApiEnvelope<Vec<service::DealSummary>>>, ApiError> {
+    let deals = service::list_deals_for(&state.pool, &user.pubkey).await?;
+    return Ok(Json(ApiEnvelope::ok("deals", deals)));
 }
 
 async fn get_deal(
