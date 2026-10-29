@@ -1,0 +1,25 @@
+[package]
+name = "opendeal-bitcoin"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "OpenDeal Bitcoin settlement: P2WSH 2-of-3, funding verify, PSBT coordination"
+
+[dependencies]
+opendeal-core = { workspace = true }
+bitcoin = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true, features = ["arbitrary_precision"] }
+thiserror = { workspace = true }
+hex = { workspace = true }
+async-trait = { workspace = true }
+tracing = { workspace = true }
+tokio = { workspace = true }
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
+base64 = "0.22"
+
+[dev-dependencies]
+tokio = { workspace = true }
+# Preserve Core BTC decimals exactly in the live test harness.
+serde_json = { workspace = true, features = ["arbitrary_precision"] }
