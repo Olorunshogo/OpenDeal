@@ -44,7 +44,10 @@ function downloadIdentityFile(file: IdentityFile) {
 
 export function OnboardingClient() {
   const router = useRouter();
-  const next = safeNextPath(useSearchParams().get("next"));
+  const searchParams = useSearchParams();
+  const next = safeNextPath(searchParams.get("next"));
+  // Only auto-return when a page asked for sign-in (?next=...); otherwise stay and show the result.
+  const returnAfterSignIn = Boolean(searchParams.get("next"));
   const client = useQueryClient();
   const session = useSession();
   const hasKey = useHasSigningCapability(session?.pubkey);
@@ -166,6 +169,7 @@ export function OnboardingClient() {
                     await unlockIdentity(deviceIdentity, devicePass, clearPrivateQueries);
                     setLastFile(identityFileFor(deviceIdentity));
                     setMessage("Unlocked and signed in.");
+                    if (returnAfterSignIn) router.push(next);
                   })
                 }
               >
@@ -319,6 +323,7 @@ export function OnboardingClient() {
                         ? "Restored and signed in. Download the recovery file again to get a file that holds only this identity."
                         : "Restored and signed in.",
                     );
+                    if (returnAfterSignIn && !chosen.envelope.legacyRole) router.push(next);
                   })
                 }
               >
