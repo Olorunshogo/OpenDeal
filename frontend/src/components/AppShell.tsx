@@ -1,6 +1,7 @@
 import Image from "next/image";
 import Link from "next/link";
 import { ApiStatusBanner, ApiStatusIndicator } from "./ApiStatusBanner";
+import { HeaderIdentity } from "./HeaderIdentity";
 import { SessionBar } from "./SessionBar";
 
 export function AppShell({ children }: { children: React.ReactNode }) {
@@ -25,9 +26,12 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             priority
           />
         </Link>
-        <nav className="flex items-center gap-4 text-sm text-[var(--ink-muted)] sm:gap-5">
+        <nav className="flex flex-wrap items-center gap-4 text-sm text-[var(--ink-muted)] sm:gap-5">
           <Link href="/market" className="hover:text-[var(--ink)]">
             Market
+          </Link>
+          <Link href="/deals" className="hover:text-[var(--ink)]">
+            My deals
           </Link>
           <Link href="/deals/new" className="hover:text-[var(--ink)]">
             New deal
@@ -35,9 +39,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           <Link href="/mediator" className="hover:text-[var(--ink)]">
             Mediator
           </Link>
-          <Link href="/onboarding" className="hover:text-[var(--ink)]">
-            Sign in
-          </Link>
+          <HeaderIdentity />
           <ApiStatusIndicator />
         </nav>
       </header>

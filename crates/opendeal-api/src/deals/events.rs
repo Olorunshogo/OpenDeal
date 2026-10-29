@@ -18,6 +18,13 @@ pub async fn append_event_conn(
         .bind(agreement_id)
         .execute(&mut *connection)
         .await?;
+    // Every event is a change to the deal. Bumping updated_at lets clients poll only
+    // GET /deals/{id} and refetch details when it changes (agreement signatures and evidence
+    // otherwise leave the deal row untouched).
+    sqlx::query("UPDATE deals SET updated_at = now() WHERE id = $1")
+        .bind(agreement_id)
+        .execute(&mut *connection)
+        .await?;
     let last = sqlx::query_as::<_, (i64, String)>(
         r#"
         SELECT sequence, event_hash FROM deal_events

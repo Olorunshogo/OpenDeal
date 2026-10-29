@@ -232,6 +232,23 @@ export function getMeta(): Promise<PublicMeta> {
   return apiFetch<PublicMeta>("/api/v1/meta");
 }
 
+export interface DealSummary {
+  id: string;
+  title: string;
+  status: DealStatus;
+  amount_sats: number;
+  currency: string;
+  network: string;
+  role: "seller" | "buyer" | "mediator";
+  created_at: string;
+  updated_at: string;
+}
+
+/** Deals the signed-in identity takes part in, most recently updated first. */
+export function listMyDeals(token: string): Promise<DealSummary[]> {
+  return authedApiFetch<DealSummary[]>(token, "/api/v1/deals");
+}
+
 export function getDeal(token: string, id: string): Promise<Deal> {
   return authedApiFetch<Deal>(token, `/api/v1/deals/${id}`);
 }

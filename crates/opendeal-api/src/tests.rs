@@ -88,6 +88,7 @@ async fn private_routes_require_authentication() {
         .unwrap();
     let app = build_app(mock_state(pool, Arc::new(MockBitcoinRpc::new())).await);
     for path in [
+        "/api/v1/deals",
         "/api/v1/deals/nope",
         "/api/v1/deals/nope/receipt",
         "/api/v1/deals/nope/events",
@@ -150,7 +151,7 @@ async fn private_routes_require_authentication() {
             );
         }
     }
-    assert_eq!(protected_operations, 30);
+    assert_eq!(protected_operations, 31);
     let mut signature = json!({"sig":"00".repeat(64),"pubkey":"02".to_owned()+&"11".repeat(32)});
     signature["private_key"] = json!("forbidden-field");
     assert!(serde_json::from_value::<opendeal_core::Signature>(signature).is_err());
@@ -1181,6 +1182,15 @@ async fn three_identity_roles_are_scoped_to_one_agreement() {
         let deal = create(&app, st, &buyer, &mediator, &payout, &refund).await;
         let id = deal["id"].as_str().unwrap();
         let prefix = format!("/deals/{id}");
+        for (token, role) in [(st, "seller"), (bt, "buyer"), (mt, "mediator")] {
+            let listed = ok(&app, "GET", "/deals", token, json!(null)).await;
+            assert_eq!(listed.as_array().unwrap().len(), 1, "{role} sees the deal");
+            assert_eq!(listed[0]["id"], id);
+            assert_eq!(listed[0]["role"], role);
+            assert!(listed[0].get("agreement_json").is_none());
+        }
+        let unrelated = ok(&app, "GET", "/deals", other, json!(null)).await;
+        assert_eq!(unrelated, json!([]), "non-participants see no deals");
         assert_eq!(deal["seller_pubkey"], seller.public);
         assert_eq!(deal["buyer_pubkey"], buyer.public);
         assert_eq!(deal["mediator_pubkey"], mediator.public);

@@ -233,6 +233,13 @@ fn operations() -> Vec<(&'static str, &'static str, &'static str, Value, Value)>
         ),
         (
             "get",
+            "/api/v1/deals",
+            "List deals where the caller is seller, buyer, or mediator (newest first, max 200)",
+            Value::Null,
+            json!([{"id":"<sha256>","title":"Laptop","status":"funded","amount_sats":100000,"currency":"BTC","network":"regtest","role":"seller","created_at":"2026-10-29T12:00:00Z","updated_at":"2026-10-29T12:05:00Z"}]),
+        ),
+        (
+            "get",
             "/api/v1/deals/{id}",
             "Read participant's deal",
             Value::Null,

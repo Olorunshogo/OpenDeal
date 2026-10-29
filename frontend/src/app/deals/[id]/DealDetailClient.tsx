@@ -3,10 +3,11 @@
 import Link from "next/link";
 import { useParams, useSearchParams } from "next/navigation";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { DealLifecycleGuide } from "@/components/DealLifecycleGuide";
 import { AppShell } from "@/components/AppShell";
 import { NetworkBanner } from "@/components/NetworkBanner";
+import { UnlockSigningKey } from "@/components/UnlockSigningKey";
 import { Input } from "@/components/ui/Input";
 import { Textarea } from "@/components/ui/Textarea";
 import {
@@ -56,11 +57,13 @@ import {
 } from "@/lib/session";
 import { verifyCanonicalAgreement } from "@/lib/agreement-verification";
 import { verifyDealReceipt, type ReceiptVerification } from "@/lib/receipt-verification";
-import { canParticipantAct, participantRoleForAgreement } from "@/lib/workflow";
+import { actionBlockedReason, canParticipantAct, participantRoleForAgreement } from "@/lib/workflow";
 import { assertEvidenceIntegrity } from "@/lib/evidence";
 
 // The other participant acts in their own browser. Poll so this page picks up their changes
-// without a reload, because a reload drops the in-memory signing key.
+// without a reload, because a reload drops the in-memory signing key. Only the deal is polled
+// (the API bumps updated_at on every event); the rest is refetched when it changes. That is one
+// request per window every 5 s, well under the API's per-IP rate limit with two local windows.
 const DEAL_POLL_MS = 5000;
 
 export function DealDetailClient({ dealId }: { dealId?: string } = {}) {
@@ -82,7 +85,8 @@ export function DealDetailClient({ dealId }: { dealId?: string } = {}) {
       ? fromMediator
       : "payout_seller";
   });
-  const [destination, setDestination] = useState("");
+  // null = use the address from the verified signed agreement for the chosen purpose.
+  const [destinationInput, setDestinationInput] = useState<string | null>(null);
   const [feeSats, setFeeSats] = useState("500");
   const [pastedPsbt, setPastedPsbt] = useState("");
   const [reviewed, setReviewed] = useState(false);
@@ -110,14 +114,25 @@ export function DealDetailClient({ dealId }: { dealId?: string } = {}) {
     queryKey: ["agreement", id, viewer],
     queryFn: () => getAgreement(token, id),
     enabled: Boolean(id && token),
-    refetchInterval: DEAL_POLL_MS,
   });
   const eventsQuery = useQuery({
     queryKey: ["events", id, viewer],
     queryFn: () => getEvents(token, id),
     enabled: Boolean(id && token),
-    refetchInterval: DEAL_POLL_MS,
   });
+  const changeSignal = dealQuery.data
+    ? `${dealQuery.data.updated_at}|${dealQuery.data.status}|${dealQuery.data.settlement_phase}`
+    : "";
+  const lastSignal = useRef("");
+  useEffect(() => {
+    const previous = lastSignal.current;
+    lastSignal.current = changeSignal;
+    // Skip the first load: those queries were just fetched.
+    if (!changeSignal || !previous || previous === changeSignal) return;
+    for (const key of ["agreement", "events", "settlement", "funding", "evidence"]) {
+      void queryClient.invalidateQueries({ queryKey: [key, id] });
+    }
+  }, [changeSignal, id, queryClient]);
   const evidenceQuery = useQuery({
     queryKey: ["evidence", id, viewer],
     queryFn: () => listEvidence(token, id),
@@ -143,11 +158,11 @@ export function DealDetailClient({ dealId }: { dealId?: string } = {}) {
     enabled: Boolean(dealQuery.data?.buyer_pubkey),
   });
   const settlementQuery = useQuery({
-    queryKey: ["settlement", id, viewer],
+    // Keyed on the current PSBT so signature counts always describe the PSBT on screen.
+    queryKey: ["settlement", id, viewer, psbtFingerprint(dealQuery.data?.current_psbt)],
     queryFn: () => getSettlement(token, id),
     enabled: Boolean(token) && Boolean(dealQuery.data?.current_psbt),
-    // Poll in every phase: the other signer's partial signature arrives from their browser.
-    refetchInterval: DEAL_POLL_MS,
+    // Refetched when the PSBT changes (key) or the deal changes (see the effect below).
   });
 
   async function refresh() {
@@ -314,6 +329,13 @@ export function DealDetailClient({ dealId }: { dealId?: string } = {}) {
     deal && agreement
       ? verifyCanonicalAgreement(agreement.canonical_hex, agreement.agreement, deal)
       : null;
+  const agreedDestination =
+    agreementVerification?.valid === true
+      ? purpose === "payout_seller"
+        ? agreementVerification.agreement.seller_payout_address
+        : agreementVerification.agreement.buyer_refund_address
+      : "";
+  const destination = destinationInput ?? agreedDestination ?? "";
   const signed = new Set((agreement?.signed_pubkeys ?? []).map(normPubkey));
   const sellerSigned = agreement
     ? signed.has(normPubkey(agreement.agreement.seller_pubkey))
@@ -675,6 +697,12 @@ export function DealDetailClient({ dealId }: { dealId?: string } = {}) {
             </h1>
           </div>
           {deal ? <DealLifecycleGuide deal={deal} role={participantRole} sellerSigned={sellerSigned} buyerSigned={buyerSigned} validSignatures={settlementQuery.data?.valid_signatures ?? 0} disputeResolved={Boolean(disputeDecision)} /> : null}
+          {session?.token && !hasSigningCapability && isParty ? (
+            <UnlockSigningKey pubkey={session.pubkey} />
+          ) : null}
+          {deal ? (
+            <DataFreshness updatedAt={dealQuery.dataUpdatedAt} fetching={dealQuery.isFetching} onRefresh={() => void refresh()} />
+          ) : null}
           {dealQuery.isError && !dealAccessError ? (
             <p className="text-sm text-[var(--danger)]">
               {dealQuery.error instanceof Error ? dealQuery.error.message : "Could not load this deal."}
@@ -909,9 +937,12 @@ export function DealDetailClient({ dealId }: { dealId?: string } = {}) {
               canPropose={canPropose}
               isParty={Boolean(isParty)}
               purpose={purpose}
-              setPurpose={setPurpose}
+              setPurpose={(next) => {
+                setPurpose(next);
+                setDestinationInput(null);
+              }}
               destination={destination}
-              setDestination={setDestination}
+              setDestination={setDestinationInput}
               feeSats={feeSats}
               setFeeSats={setFeeSats}
               proposedPurpose={proposedPurpose}
@@ -1012,21 +1043,25 @@ export function DealDetailClient({ dealId }: { dealId?: string } = {}) {
           <div className="grid grid-cols-1 gap-2 sm:flex sm:flex-wrap">
             <ActionButton
               label="Prepare funding"
+              reason={actionBlockedReason("prepare_funding", String(deal?.status ?? ""), participantRole)}
               disabled={actionBusy || !canFund}
               onClick={() => withSession((t) => prepareFunding(t, id))}
             />
             <ActionButton
               label="Verify funding"
+              reason={actionBlockedReason("verify_funding", String(deal?.status ?? ""), participantRole)}
               disabled={actionBusy || deal?.status !== "awaiting_payment"}
               onClick={() => withSession((t) => verifyFunding(t, id))}
             />
             <ActionButton
               label="Mark shipped"
+              reason={actionBlockedReason("ship", String(deal?.status ?? ""), participantRole)}
               disabled={actionBusy || !canParticipantAct("ship", String(deal?.status ?? ""), participantRole)}
               onClick={() => withSession((t) => transitionDeal(t, id, "shipped" as DealStatus))}
             />
             <ActionButton
               label="Accept delivery"
+              reason={actionBlockedReason("accept", String(deal?.status ?? ""), participantRole)}
               disabled={actionBusy || !canParticipantAct("accept", String(deal?.status ?? ""), participantRole)}
               onClick={() => withSession((t) => transitionDeal(t, id, "accepted" as DealStatus))}
             />
@@ -1039,12 +1074,20 @@ export function DealDetailClient({ dealId }: { dealId?: string } = {}) {
             ) : null}
             <ActionButton
               label="Open dispute"
+              reason={
+                actionBlockedReason(
+                  "open_dispute",
+                  String(deal?.status ?? ""),
+                  participantRole,
+                  Boolean(deal?.settlement_txid || deal?.current_psbt),
+                ) ?? (disputeReason.trim() ? null : "Enter a dispute reason first.")
+              }
               disabled={actionBusy || !canOpenDispute || !disputeReason.trim()}
               onClick={() =>
                 withSession((t) => openDispute(t, id, disputeReason.trim()))
               }
             />
-            <ActionButton label="Export receipt" onClick={onExportReceipt} />
+            <ActionButton label="Verify receipt" onClick={onExportReceipt} />
           </div>
 
           {receiptJson && receiptViewer === viewer ? (
@@ -1438,6 +1481,12 @@ function SettlementPanel({
                   Finalize / broadcast
                 </button>
               </div>
+              {!deal.settlement_txid && validSignatures < requiredSignatures ? (
+                <p className="text-xs text-[var(--ink-muted)]">
+                  Finalize unlocks at {requiredSignatures} of 3 signatures ({validSignatures} so far).
+                  {!hasLocalSecret ? " Unlock your signing key above to add yours." : ""}
+                </p>
+              ) : null}
               <label className="flex flex-col gap-1 text-sm">
                 <span className="text-[var(--ink-muted)]">Or paste a wallet-signed PSBT</span>
                 <textarea
@@ -1518,20 +1567,70 @@ function ActionButton({
   label,
   onClick,
   disabled,
+  reason,
 }: {
   label: string;
   onClick: () => void;
   disabled?: boolean;
+  /** Why the action is unavailable; shown as text under the button when it is disabled. */
+  reason?: string | null;
 }) {
+  const shownReason = disabled ? reason : null;
   return (
-    <button
-      type="button"
-      onClick={onClick}
-      disabled={disabled}
-      title={disabled ? `${label} is unavailable for the current identity or deal state. See the workflow guide above.` : undefined}
-      className="rounded border border-[var(--line)] px-3 py-2 text-xs text-[var(--ink)] transition hover:border-[var(--accent)] disabled:cursor-not-allowed disabled:opacity-35"
-    >
-      {label}
-    </button>
+    <div className="flex flex-col gap-1 sm:max-w-44">
+      <button
+        type="button"
+        onClick={onClick}
+        disabled={disabled}
+        aria-describedby={shownReason ? `${label}-reason` : undefined}
+        className="rounded border border-[var(--line)] px-3 py-2 text-xs text-[var(--ink)] transition hover:border-[var(--accent)] disabled:cursor-not-allowed disabled:opacity-35"
+      >
+        {label}
+      </button>
+      {shownReason ? (
+        <span id={`${label}-reason`} className="text-[10px] leading-snug text-[var(--ink-muted)]">
+          {shownReason}
+        </span>
+      ) : null}
+    </div>
+  );
+}
+
+/** Short, stable fingerprint of a PSBT for query keys (avoids keying on the whole base64). */
+function psbtFingerprint(psbt: string | null | undefined): string {
+  if (!psbt) return "none";
+  return `${psbt.length}:${psbt.slice(-24)}`;
+}
+
+/** "Updated 3s ago" plus a manual refresh, so it is clear the page is current. */
+function DataFreshness({
+  updatedAt,
+  fetching,
+  onRefresh,
+}: {
+  updatedAt: number;
+  fetching: boolean;
+  onRefresh: () => void;
+}) {
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    const timer = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(timer);
+  }, []);
+  const seconds = updatedAt ? Math.max(0, Math.round((now - updatedAt) / 1000)) : null;
+  return (
+    <div className="flex items-center gap-3 text-xs text-[var(--ink-muted)]">
+      <span aria-live="polite">
+        {fetching ? "Checking for updates…" : seconds === null ? "Not loaded yet" : `Updated ${seconds}s ago · auto-refreshes every 5s`}
+      </span>
+      <button
+        type="button"
+        onClick={onRefresh}
+        disabled={fetching}
+        className="underline decoration-[var(--line)] underline-offset-4 hover:text-[var(--ink)] disabled:opacity-50"
+      >
+        Refresh
+      </button>
+    </div>
   );
 }

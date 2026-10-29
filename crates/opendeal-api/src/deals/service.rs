@@ -35,6 +35,71 @@ pub fn assert_party(deal: &Deal, actor: &str) -> Result<(), ApiError> {
     }
 }
 
+/// Upper bound on one listing; the UI shows the most recently updated deals first.
+pub const MAX_LISTED_DEALS: i64 = 200;
+
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct DealSummary {
+    pub id: String,
+    pub title: String,
+    pub status: String,
+    pub amount_sats: i64,
+    pub currency: String,
+    pub network: String,
+    /// The caller's role in this deal: `seller`, `buyer`, or `mediator`.
+    pub role: &'static str,
+    pub created_at: chrono::DateTime<Utc>,
+    pub updated_at: chrono::DateTime<Utc>,
+}
+
+pub fn role_of(deal: &Deal, actor: &str) -> Option<&'static str> {
+    if is_seller(deal, actor) {
+        return Some("seller");
+    }
+    if is_buyer(deal, actor) {
+        return Some("buyer");
+    }
+    if is_mediator(deal, actor) {
+        return Some("mediator");
+    }
+    return None;
+}
+
+/// Deals the actor takes part in. `actor` is the authenticated x-only identity; stored keys may
+/// carry a 02/03 prefix, so all three spellings are matched and `role_of` re-checks each row.
+pub async fn list_deals_for(pool: &PgPool, actor: &str) -> Result<Vec<DealSummary>, ApiError> {
+    let deals: Vec<Deal> = sqlx::query_as(
+        "SELECT * FROM deals \
+         WHERE lower(seller_pubkey) IN ($1, $2, $3) \
+            OR lower(buyer_pubkey) IN ($1, $2, $3) \
+            OR lower(mediator_pubkey) IN ($1, $2, $3) \
+         ORDER BY updated_at DESC LIMIT $4",
+    )
+    .bind(actor)
+    .bind(format!("02{actor}"))
+    .bind(format!("03{actor}"))
+    .bind(MAX_LISTED_DEALS)
+    .fetch_all(pool)
+    .await?;
+    return Ok(deals
+        .into_iter()
+        .filter_map(|deal| {
+            let role = role_of(&deal, actor)?;
+            Some(DealSummary {
+                id: deal.id,
+                title: deal.title,
+                status: deal.status,
+                amount_sats: deal.amount_sats,
+                currency: deal.currency,
+                network: deal.network,
+                role,
+                created_at: deal.created_at,
+                updated_at: deal.updated_at,
+            })
+        })
+        .collect());
+}
+
 pub async fn get_deal(pool: &PgPool, id: &str) -> Result<Deal, ApiError> {
     sqlx::query_as("SELECT * FROM deals WHERE id=$1")
         .bind(id)

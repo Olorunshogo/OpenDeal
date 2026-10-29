@@ -18,7 +18,6 @@ import {
   loadSession,
   saveSession,
   setSigningCapability,
-  updateSessionRoleLabel,
   useHasSigningCapability,
   useSession,
   type Session,
@@ -161,13 +160,12 @@ export function SessionBar() {
     return (
       <div className="flex flex-col gap-3 rounded-lg border border-[var(--accent)]/40 bg-[var(--accent)]/10 p-3 text-sm">
         <p className="text-[var(--ink)]">
-          Your sign-in for {session.roleLabel} {session.pubkey.slice(0, 8)}…{session.pubkey.slice(-6)}{" "}
+          Your sign-in for {session.pubkey.slice(0, 8)}…{session.pubkey.slice(-6)}{" "}
           expired.
           {hasSigningKey
             ? " Your signing key is only in memory; it will be lost on refresh."
             : " Sign in again with the same key to keep acting on your deals."}
         </p>
-        <RoleLabelSelector value={session.roleLabel} onChange={updateSessionRoleLabel} disabled={busy} />
         <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center">
           {hasSigningKey ? (
             <button
@@ -242,7 +240,7 @@ export function SessionBar() {
             regtest experimental
           </span>
           <span className="break-all">
-            Test label · {session.roleLabel}: {session.pubkey.slice(0, 8)}…{session.pubkey.slice(-6)}
+            Signed in · {session.pubkey.slice(0, 8)}…{session.pubkey.slice(-6)}
           </span>
           <button
             type="button"
@@ -270,7 +268,6 @@ export function SessionBar() {
             {showWebhooks ? "Hide webhooks" : "Webhooks"}
           </button>
         </div>
-        <RoleLabelSelector value={session.roleLabel} onChange={updateSessionRoleLabel} disabled={busy} />
         {error ? <p className="text-sm text-[var(--danger)]">{error}</p> : null}
         {!hasSigningKey && !showSigningKeyForm ? (
           <button
@@ -396,38 +393,6 @@ export function SessionBar() {
           </button>
         </div>
       ) : null}
-    </div>
-  );
-}
-
-function RoleLabelSelector({
-  value,
-  onChange,
-  disabled,
-}: {
-  value: string;
-  onChange: (value: string) => void;
-  disabled: boolean;
-}) {
-  return (
-    <div className="flex flex-col gap-1 text-xs text-[var(--ink-muted)]">
-      <label className="flex flex-wrap items-center gap-2">
-        <span>Local test label</span>
-        <select
-          value={value}
-          onChange={(event) => onChange(event.target.value)}
-          disabled={disabled}
-          className="rounded border border-[var(--line)] bg-[var(--bg-deep)] px-2 py-1.5"
-        >
-          <option value="seller">seller</option>
-          <option value="buyer">buyer</option>
-          <option value="mediator">mediator</option>
-        </select>
-      </label>
-      <p>
-        Label only. Your public key and the deal determine permissions. Mediator dispute listing
-        also requires the API allowlist.
-      </p>
     </div>
   );
 }
